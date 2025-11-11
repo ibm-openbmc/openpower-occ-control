@@ -27,18 +27,6 @@ namespace open_power
 namespace occ
 {
 
-enum occFruType
-{
-    processorCore = 0,
-    internalMemCtlr = 1,
-    dimm = 2,
-    memCtrlAndDimm = 3,
-    VRMVdd = 6,
-    PMIC = 7,
-    memCtlrExSensor = 8,
-    processorIoRing = 9
-};
-
 /** @brief Default time, in seconds, between OCC poll commands */
 constexpr unsigned int defaultPollingInterval = 5;
 
@@ -49,9 +37,6 @@ constexpr auto AMBIENT_PROP = "Value";
 constexpr auto ALTITUDE_PATH = "/xyz/openbmc_project/sensors/altitude/Altitude";
 constexpr auto ALTITUDE_INTERFACE = "xyz.openbmc_project.Sensor.Value";
 constexpr auto ALTITUDE_PROP = "Value";
-
-constexpr auto EXTN_LABEL_PWRM_MEMORY_POWER = "5057524d";
-constexpr auto EXTN_LABEL_PWRP_PROCESSOR_POWER = "50575250";
 
 /** @class Manager
  *  @brief Builds and manages OCC objects
@@ -128,19 +113,8 @@ struct Manager
                         uint16_t& altitude) const;
 
     /** @brief Notify pcap object to update bounds */
-    void updatePcapBounds() const;
-
-    /**
-     * @brief Set all sensor values of this OCC to NaN.
-     * @param[in] id - Id of the OCC.
-     * */
-    void setSensorValueToNaN(uint32_t id) const;
-
-    /** @brief Set all sensor values of this OCC to NaN and non functional.
-     *
-     *  @param[in] id - Id of the OCC.
-     */
-    void setSensorValueToNonFunctional(uint32_t id) const;
+    void updatePcapBounds(bool& parmsChanged,uint32_t& capSoftMin,
+                        uint32_t& capHardMin, uint32_t& capMax) const;
 
     /** @brief Clear any state flags that need to be reset when the host state
      * is off */
@@ -384,79 +358,6 @@ struct Manager
      * @return The IDs of the OCCs - 0, 1, etc.
      */
     std::vector<int> findOCCsInDev();
-
-    /**
-     * @brief Gets the occ sensor values.
-     * @param[in] occ - pointer to OCCs Status object
-     * */
-    void getSensorValues(std::unique_ptr<Status>& occ);
-
-    /**
-     * @brief Trigger OCC driver to read the temperature sensors.
-     * @param[in] path - path of the OCC sensors.
-     * @param[in] id - Id of the OCC.
-     * */
-    void readTempSensors(const fs::path& path, uint32_t id);
-
-    /**
-     * @brief Trigger OCC driver to read the extended sensors.
-     * @param[in] path - path of the OCC sensors.
-     * @param[in] id - Id of the OCC.
-     * */
-    void readExtnSensors(const fs::path& path, uint32_t id);
-
-    /**
-     * @brief Trigger OCC driver to read the power sensors.
-     * @param[in] path - path of the OCC sensors.
-     * @param[in] id - Id of the OCC.
-     * */
-    void readPowerSensors(const fs::path& path, uint32_t id);
-
-    /** @brief Store the existing OCC sensors on D-BUS */
-    std::map<std::string, uint32_t> existingSensors;
-
-    /** @brief Get FunctionID from the `powerX_label` file.
-     *  @param[in] value - the value of the `powerX_label` file.
-     *  @returns FunctionID of the power sensors.
-     */
-    std::optional<std::string> getPowerLabelFunctionID(
-        const std::string& value);
-
-    /** @brief The power sensor names map */
-    const std::map<std::string, std::string> powerSensorName = {
-        {"system", "total_power"}, {"1", "p0_mem_power"},
-        {"2", "p1_mem_power"},     {"3", "p2_mem_power"},
-        {"4", "p3_mem_power"},     {"5", "p0_power"},
-        {"6", "p1_power"},         {"7", "p2_power"},
-        {"8", "p3_power"},         {"9", "p0_cache_power"},
-        {"10", "p1_cache_power"},  {"11", "p2_cache_power"},
-        {"12", "p3_cache_power"},  {"13", "io_a_power"},
-        {"14", "io_b_power"},      {"15", "io_c_power"},
-        {"16", "fans_a_power"},    {"17", "fans_b_power"},
-        {"18", "storage_a_power"}, {"19", "storage_b_power"},
-        {"23", "mem_cache_power"}, {"25", "p0_mem_0_power"},
-        {"26", "p0_mem_1_power"},  {"27", "p0_mem_2_power"},
-        {"35", "pcie_dcm0_power"}, {"36", "pcie_dcm1_power"},
-        {"37", "pcie_dcm2_power"}, {"38", "pcie_dcm3_power"},
-        {"39", "io_dcm0_power"},   {"40", "io_dcm1_power"},
-        {"41", "io_dcm2_power"},   {"42", "io_dcm3_power"},
-        {"43", "avdd_total_power"}};
-
-    /** @brief The dimm temperature sensor names map  */
-    const std::map<uint32_t, std::string> dimmTempSensorName = {
-        {internalMemCtlr, "_intmb_temp"},
-        {dimm, "_dram_temp"},
-        {memCtrlAndDimm, "_dram_extmb_temp"},
-        {PMIC, "_pmic_temp"},
-        {memCtlrExSensor, "_extmb_temp"}};
-
-    /** @brief The dimm DVFS temperature sensor names map  */
-    const std::map<uint32_t, std::string> dimmDVFSSensorName = {
-        {internalMemCtlr, "dimm_intmb_dvfs_temp"},
-        {dimm, "dimm_dram_dvfs_temp"},
-        {memCtrlAndDimm, "dimm_dram_extmb_dvfs_temp"},
-        {PMIC, "dimm_pmic_dvfs_temp"},
-        {memCtlrExSensor, "dimm_extmb_dvfs_temp"}};
 
     /** @brief Read the altitude from DBus */
     void readAltitude();

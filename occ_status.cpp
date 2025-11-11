@@ -1,5 +1,6 @@
 #include "occ_status.hpp"
 
+#include "occ_dbus.hpp"
 #include "occ_manager.hpp"
 #include "occ_sensor.hpp"
 #include "powermode.hpp"
@@ -60,7 +61,10 @@ bool Status::occActive(bool value)
             if (device.master())
             {
                 // Update powercap bounds from OCC
-                manager.updatePcapBounds();
+                uint32_t capSoftMin = 0, capHardMin = 0, capMax = 0;
+                bool parmsChanged = occPollHandler.pollReadPcapBounds(capSoftMin, capHardMin, capMax);
+
+                manager.updatePcapBounds(parmsChanged, capSoftMin, capHardMin, capMax);
             }
 
             // Call into Manager to let know that we have bound
@@ -76,7 +80,7 @@ bool Status::occActive(bool value)
             {
                 sensorsValid = false;
                 // Sensors not supported (update to NaN and not functional)
-                manager.setSensorValueToNaN(instance);
+                setSensorValueToNaN();
             }
 
             if (pmode && device.master())
@@ -104,6 +108,9 @@ bool Status::occActive(bool value)
 
             // Clear throttles (OCC not active after disabling device)
             updateThrottle(false, THROTTLED_ALL);
+
+            // CALL into poll_handler to clear any trace poll flags.
+            occPollHandler.clearOccPollTraceFlags();
         }
     }
     else if (value && !device.active())
@@ -214,14 +221,18 @@ void Status::hostControlEvent(sdbusplus::message_t& msg)
 }
 
 // Called from Manager::pollerTimerExpired() in preperation to POLL OCC.
-void Status::readOccState()
+void Status::PollHandler()
 {
     if (stateValid)
     {
         // Reset retry count (since state is good)
         currentOccReadRetriesCount = occReadRetries;
     }
+
     occReadStateNow();
+
+    occPollHandler.HandlePollAction();
+
 }
 
 // Special processing that needs to happen once the OCCs change to ACTIVE state
@@ -391,144 +402,86 @@ fs::path Status::getHwmonPath()
 void Status::occReadStateNow()
 {
     unsigned int state;
-    const fs::path filename =
-        fs::path(DEV_PATH) /
-        fs::path(sysfsName + "." + std::to_string(instance + 1)) / "occ_state";
-
-    std::ifstream file;
     bool stateWasRead = false;
 
-    // open file.
-    file.open(filename, std::ios::in);
-    const int openErrno = errno;
+    stateWasRead = occPollHandler.pollReadStateStatus(state, lastOccReadStatus);
 
-    // File is open and state can be used.
-    if (file.is_open() && file.good())
+    if (stateWasRead && (state != lastState))
     {
-        stateWasRead = true;
-        file >> state;
-        // Read the error code (if any) to check status of the read
-        std::ios_base::iostate readState = file.rdstate();
-        if (readState)
+        // Trace OCC state changes
+        lg2::info(
+            "Status::readOccState: OCC{INST} state {STATE} (lastState: {PRIOR})",
+            "INST", instance, "STATE", lg2::hex, state, "PRIOR", lg2::hex,
+            lastState);
+        lastState = state;
+
+        if (OccState(state) == OccState::ACTIVE)
         {
-            // There was a failure reading the file
-            if (lastOccReadStatus != -1)
+            if (pmode && device.master())
             {
-                // Trace error bits
-                std::string errorBits = "";
-                if (readState & std::ios_base::eofbit)
-                {
-                    errorBits += " EOF";
-                }
-                if (readState & std::ios_base::failbit)
-                {
-                    errorBits += " failbit";
-                }
-                if (readState & std::ios_base::badbit)
-                {
-                    errorBits += " badbit";
-                }
+                // Set the master OCC on the PowerMode object
+                pmode->setMasterOcc(path);
+                // Enable mode changes
+                pmode->setMasterActive();
+
+                // Special processing by master OCC when it goes active
+                occsWentActive();
+            }
+
+            CmdStatus status = sendAmbient();
+            if (status != CmdStatus::SUCCESS)
+            {
                 lg2::error(
-                    "readOccState: Failed to read OCC{INST} state: Read error on I/O operation - {ERROR}",
-                    "INST", instance, "ERROR", errorBits);
-                lastOccReadStatus = -1;
+                    "readOccState: Sending Ambient failed with status {STATUS}",
+                    "STATUS", status);
             }
-            stateWasRead = false;
         }
 
-        if (stateWasRead && (state != lastState))
+        // If OCC in known Good State.
+        if ((OccState(state) == OccState::ACTIVE) ||
+            (OccState(state) == OccState::CHARACTERIZATION) ||
+            (OccState(state) == OccState::OBSERVATION))
         {
-            // Trace OCC state changes
-            lg2::info(
-                "Status::readOccState: OCC{INST} state {STATE} (lastState: {PRIOR})",
-                "INST", instance, "STATE", lg2::hex, state, "PRIOR", lg2::hex,
-                lastState);
-            lastState = state;
+            // Good OCC State then sensors valid again
+            stateValid = true;
+            sensorsValid = true;
 
-            if (OccState(state) == OccState::ACTIVE)
+            if (safeStateDelayTimer.isEnabled())
             {
-                if (pmode && device.master())
-                {
-                    // Set the master OCC on the PowerMode object
-                    pmode->setMasterOcc(path);
-                    // Enable mode changes
-                    pmode->setMasterActive();
-
-                    // Special processing by master OCC when it goes active
-                    occsWentActive();
-                }
-
-                CmdStatus status = sendAmbient();
-                if (status != CmdStatus::SUCCESS)
-                {
-                    lg2::error(
-                        "readOccState: Sending Ambient failed with status {STATUS}",
-                        "STATUS", status);
-                }
+                // stop safe delay timer (no longer in SAFE state)
+                safeStateDelayTimer.setEnabled(false);
+            }
+        }
+        else
+        {
+            // OCC is in SAFE or some other unsupported state
+            if (!safeStateDelayTimer.isEnabled())
+            {
+                lg2::error(
+                    "readOccState: Invalid OCC{INST} state of {STATE} (last state: {PRIOR}), starting safe state delay timer",
+                    "INST", instance, "STATE", lg2::hex, state, "PRIOR",
+                    lg2::hex, lastState);
+                // start safe delay timer (before requesting reset)
+                using namespace std::literals::chrono_literals;
+                safeStateDelayTimer.restartOnce(60s);
             }
 
-            // If OCC in known Good State.
-            if ((OccState(state) == OccState::ACTIVE) ||
-                (OccState(state) == OccState::CHARACTERIZATION) ||
-                (OccState(state) == OccState::OBSERVATION))
+            if (sensorsValid)
             {
-                // Good OCC State then sensors valid again
-                stateValid = true;
-                sensorsValid = true;
-
-                if (safeStateDelayTimer.isEnabled())
-                {
-                    // stop safe delay timer (no longer in SAFE state)
-                    safeStateDelayTimer.setEnabled(false);
-                }
-            }
-            else
-            {
-                // OCC is in SAFE or some other unsupported state
-                if (!safeStateDelayTimer.isEnabled())
-                {
-                    lg2::error(
-                        "readOccState: Invalid OCC{INST} state of {STATE} (last state: {PRIOR}), starting safe state delay timer",
-                        "INST", instance, "STATE", lg2::hex, state, "PRIOR",
-                        lg2::hex, lastState);
-                    // start safe delay timer (before requesting reset)
-                    using namespace std::literals::chrono_literals;
-                    safeStateDelayTimer.restartOnce(60s);
-                }
-
-                if (sensorsValid)
-                {
-                    sensorsValid = false;
-                    // Sensors not supported (update to NaN and not functional)
-                    manager.setSensorValueToNaN(instance);
-                }
+                sensorsValid = false;
+                // Sensors not supported (update to NaN and not functional)
+                setSensorValueToNaN();
             }
         }
     }
-    else
-    {
-        // Unable to read state
-        stateValid = false;
-    }
 
-    file.close();
-
-    // if failed to read the OCC state -> Attempt retry
+        // if failed to read the OCC state -> Attempt retry
     if (!stateWasRead)
     {
         if (sensorsValid)
         {
             sensorsValid = false;
-            manager.setSensorValueToNaN(instance);
-        }
-
-        // If not able to read, OCC may be offline
-        if (openErrno != lastOccReadStatus)
-        {
-            lg2::error(
-                "Status::readOccState: open/read failed trying to read OCC{INST} state (open errno={ERROR})",
-                "INST", instance, "ERROR", openErrno);
-            lastOccReadStatus = openErrno;
+            setSensorValueToNaN();
         }
 
         // See occReadRetries for number of retry attempts.
@@ -564,6 +517,38 @@ void Status::occReadStateNow()
                   "INST", instance, "STATE", state);
         lastOccReadStatus = 0; // no error
     }
+}
+
+void Status::setSensorValueToNaN() const
+{
+    for (const auto& [sensorPath, occId] : existingSensors)
+    {
+        if (occId == instance)
+        {
+            dbus::OccDBusSensors::getOccDBus().setValue(
+                sensorPath, std::numeric_limits<double>::quiet_NaN());
+
+            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+                sensorPath, true);
+        }
+    }
+    return;
+}
+
+void Status::setSensorValueToNonFunctional() const
+{
+    for (const auto& [sensorPath, occId] : existingSensors)
+    {
+        if (occId == instance)
+        {
+            dbus::OccDBusSensors::getOccDBus().setValue(
+                sensorPath, std::numeric_limits<double>::quiet_NaN());
+
+            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+                sensorPath, false);
+        }
+    }
+    return;
 }
 
 // Update processor throttle status on dbus

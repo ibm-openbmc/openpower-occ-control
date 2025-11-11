@@ -7,6 +7,7 @@
 #include "powercap.hpp"
 #include "powermode.hpp"
 #include "utils.hpp"
+#include "occ_poll_handler.hpp"
 
 #include <org/open_power/Control/Host/server.hpp>
 #include <org/open_power/OCC/Status/server.hpp>
@@ -94,6 +95,7 @@ class Status : public Interface
                fs::path(DEV_PATH) /
                    fs::path(sysfsName + "." + std::to_string(instance + 1)),
                managerRef, *this, powerModeRef, instance),
+        occPollHandler( *this ),
         hostControlSignal(
             utils::getBus(),
             sdbusRule::type::signal() + sdbusRule::member("CommandComplete") +
@@ -161,7 +163,7 @@ class Status : public Interface
     }
 
     /** @brief Read OCC state (will trigger kernel to poll the OCC) */
-    void readOccState();
+    void PollHandler();
 
     /** @brief Called when device errors are detected
      *
@@ -227,6 +229,21 @@ class Status : public Interface
      */
     void updateThrottle(const bool isThrottled, const uint8_t reason);
 
+    /**
+     * @brief Set all sensor values of this OCC to NaN.
+     * @param[in] id - Id of the OCC.
+     * */
+    void setSensorValueToNaN() const;
+
+    /** @brief Set all sensor values of this OCC to NaN and non functional.
+     *
+     *  @param[in] id - Id of the OCC.
+     */
+    void setSensorValueToNonFunctional() const;
+
+    /** @brief Store the existing OCC sensors on D-BUS */
+    std::map<std::string, uint32_t> existingSensors;
+
   private:
     /** @brief OCC dbus object path */
     std::string path;
@@ -271,6 +288,9 @@ class Status : public Interface
 
     /** @brief OCC device object to do bind and unbind */
     Device device;
+
+    /** @brief OCC device object to do bind and unbind */
+    OccPollHandler occPollHandler;
 
     /** @brief Subscribe to host control signal
      *

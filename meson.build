@@ -39,6 +39,7 @@ conf_data.set('PS_DERATING_FACTOR', get_option('ps-derating-factor'))
 conf_data.set_quoted('OCC_HWMON_PATH', '/sys/bus/platform/drivers/occ-hwmon/')
 conf_data.set_quoted('DEV_PATH', '/sys/bus/platform/devices/')
 
+conf_data.set('ENABLE_APP_POLL_SUPPORT', get_option('app-poll-support').allowed())
 conf_data.set('PHAL_SUPPORT', get_option('phal-support').allowed())
 
 if get_option('transport-implementation') == 'mctp-demux'
@@ -120,6 +121,7 @@ sources += [
     'powermode.cpp',
     'pldm.cpp',
     'utils.cpp',
+    'occ_poll_handler.cpp',
 ]
 
 if get_option('phal-support').allowed()

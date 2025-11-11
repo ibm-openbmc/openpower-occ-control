@@ -165,7 +165,8 @@ class PowerCap : public CapLimitsInterface
     uint32_t getOccInput(uint32_t pcap, bool pcapEnabled);
 
     /** @brief Read the power cap bounds from sysfs and update DBus */
-    void updatePcapBounds();
+    void updatePcapBounds(bool& parmsChanged,uint32_t& capSoftMin,
+                        uint32_t& capHardMin, uint32_t& capMax);
 
   private:
     /** @brief Persisted power cap limits */
