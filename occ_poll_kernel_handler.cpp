@@ -207,7 +207,7 @@ bool OccPollKernelHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& ca
     else
     {
         lg2::error(
-            "updatePcapBounds: unable to find pcap_min_soft file: {FILE} (errno={ERR})",
+            "pollReadPcapBounds: unable to find pcap_min_soft file: {FILE} (errno={ERR})",
             "FILE", pcapBasePathname, "ERR", errno);
     }
 
@@ -223,7 +223,7 @@ bool OccPollKernelHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& ca
     else
     {
         lg2::error(
-            "updatePcapBounds: unable to find cap_min file: {FILE} (errno={ERR})",
+            "pollReadPcapBounds: unable to find cap_min file: {FILE} (errno={ERR})",
             "FILE", pcapBasePathname, "ERR", errno);
     }
 
@@ -239,7 +239,7 @@ bool OccPollKernelHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& ca
     else
     {
         lg2::error(
-            "updatePcapBounds: unable to find cap_max file: {FILE} (errno={ERR})",
+            "pollReadPcapBounds: unable to find cap_max file: {FILE} (errno={ERR})",
             "FILE", pcapBasePathname, "ERR", errno);
     }
 

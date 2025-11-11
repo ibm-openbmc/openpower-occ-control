@@ -44,14 +44,32 @@ void OccPollAppHandler::sendOccPollCmd()
 
 }//end sendOccPollCmd
 
-bool OccPollAppHandler::pollReadStateStatus(unsigned int& state, int& lastOccReadStatus)
+bool OccPollAppHandler::pollReadStateStatus(unsigned int& state,
+    int& lastOccReadStatus)
 {
-    bool stateWasRead = true;
+    if (ValidPollRspData)
+    {
+        lastOccReadStatus = 0;
+        state = PollRspStatus;
+    }
+    else
+    {
+        // In the case of getting status of all OCCs if status not valid read.
+        HandlePollAction();
 
-    lastOccReadStatus = 0;
-    state = PollRspStatus;
+        if (ValidPollRspData)
+        {
+            lastOccReadStatus = 0;
+            state = PollRspStatus;
+        }
+        else
+        {
+            lastOccReadStatus = 0;
+            state = 0;
+        }
+    }
 
-    return stateWasRead;
+    return ValidPollRspData;
 
 }//end pollReadStateStatus
 
@@ -62,7 +80,6 @@ void OccPollAppHandler::HandlePollAction()
     if (PollRspData.size() >= OCC_RSP_HDR_LENGTH)
     {
         uint16_t index = 0;
-        const uint8_t sizeSensorLabel = SensorLabel[0].size();
 
         // Add offset to jump over Data we do not need.
         index += 5;
@@ -92,46 +109,48 @@ void OccPollAppHandler::HandlePollAction()
         //----------------------
         // Total Header is 40 bytes. -> OCC_RSP_HDR_LENGTH
 
-        std::vector<uint8_t> dataLabel = {0x53, 0x45, 0x4E, 0x53, 0x4F, 0x52}; // SENSOR TAG
+        std::vector<uint8_t> dataLabel = {'S', 'E', 'N', 'S', 'O', 'R'};
         if (std::equal(PollRspData.begin()+index, PollRspData.begin()+index+6, dataLabel.begin()))
         {
             index += 6; //Add offset of SENSOR TAG
+            ValidPollRspData = true;
 
             uint8_t numBlocks = PollRspData[index++]; // SENSOR Blocks
-            uint8_t pollVersion = PollRspData[index++]; // SENSOR Vers
+            uint8_t sensorBlockVersion = PollRspData[index++]; // SENSOR Block Vers
 
-            if (pollVersion == POLL_VERSION_FORMAT_1)
+            if (sensorBlockVersion == SENSOR_BLOCK_VERSION_1)
             {
                 for (uint16_t i = 0; i < numBlocks; i++)
                 {
-                    if (std::equal(PollRspData.begin()+index, PollRspData.begin()+index+sizeSensorLabel, SensorLabel[TEMP].begin()))
+                    unsigned char* rspPtr = &PollRspData[index];
+                    if (std::equal(rspPtr, rspPtr+size_label, TEMP_label.begin()))
                     {
-                        index += sizeSensorLabel;
+                        index += size_label;
                         PushTempSensorsToDbus(index);
                     }
-                    else if (std::equal(PollRspData.begin()+index, PollRspData.begin()+index+sizeSensorLabel, SensorLabel[FREQ].begin()))
+                    else if (std::equal(rspPtr, rspPtr+size_label, FREQ_label.begin()))
                     {
-                        index += sizeSensorLabel;
+                        index += size_label;
                         PushFreqSensorsToDbus(index);
                     }
-                    else if (std::equal(PollRspData.begin()+index, PollRspData.begin()+index+sizeSensorLabel, SensorLabel[POWR].begin()))
+                    else if (std::equal(rspPtr, rspPtr+size_label, POWR_label.begin()))
                     {
-                        index += sizeSensorLabel;
+                        index += size_label;
                         PushPowrSensorsToDbus(index);
                     }
-                    else if (std::equal(PollRspData.begin()+index, PollRspData.begin()+index+sizeSensorLabel, SensorLabel[CAPS].begin()))
+                    else if (std::equal(rspPtr, rspPtr+size_label, CAPS_label.begin()))
                     {
-                        index += sizeSensorLabel;
+                        index += size_label;
                         PushCapsSensorsToDbus(index);
                     }
-                    else if (std::equal(PollRspData.begin()+index, PollRspData.begin()+index+sizeSensorLabel, SensorLabel[EXTN].begin()))
+                    else if (std::equal(rspPtr, rspPtr+size_label, EXTN_label.begin()))
                     {
-                        index += sizeSensorLabel;
+                        index += size_label;
                         PushExtnSensorsToDbus(index);
                     }
-                    else if (std::equal(PollRspData.begin()+index, PollRspData.begin()+index+sizeSensorLabel, SensorLabel[EXTT].begin()))
+                    else if (std::equal(rspPtr, rspPtr+size_label, EXTT_label.begin()))
                     {
-                        index += sizeSensorLabel;
+                        index += size_label;
                         PushExttSensorsToDbus(index);
                     }
                 }
@@ -140,8 +159,8 @@ void OccPollAppHandler::HandlePollAction()
             {
                 if (TraceOncePollHeader)
                 {
-                    lg2::error("OccPollAppHandler::HandlePollAction: unsuported poll format:{BYTE}",
-                        "BYTE", lg2::hex, pollVersion);
+                    lg2::error("OccPollAppHandler::HandlePollAction: unsuported sensor block version:{BYTE}",
+                        "BYTE", lg2::hex, sensorBlockVersion);
                     TraceOncePollHeader = false;
                 }
             }
@@ -154,7 +173,14 @@ void OccPollAppHandler::HandlePollAction()
                 dump_hex(dataLabel);
                 TraceOncePollHeader = false;
             }
+            ValidPollRspData = false;
         }
+    }
+    else
+    {
+        lg2::error("OccPollAppHandler::HandlePollAction: invalid header size:{VALUE}",
+            "VALUE", PollRspData.size());
+        ValidPollRspData = false;
     }
 }//end HandlePollAction
 
@@ -179,15 +205,14 @@ void OccPollAppHandler::PushTempSensorsToDbus(uint16_t& index )
             //  fruTypeValue: 1 byte
             //  tempValue:    1 byte
             //----------------------
-
-            uint32_t SensorID = (static_cast<uint32_t>(PollRspData[index]) << 24) |
-                    (static_cast<uint32_t>(PollRspData[index + 1]) << 16) |
-                    (static_cast<uint32_t>(PollRspData[index + 2]) << 8) |
-                    (static_cast<uint32_t>(PollRspData[index + 3]));
-
-            auto tempValue = PollRspData[index+5];
+            uint32_t SensorID = ((PollRspData[index]) << 24) |
+                    ((PollRspData[index + 1]) << 16) |
+                    ((PollRspData[index + 2]) << 8) |
+                    ((PollRspData[index + 3]));
 
             uint32_t fruTypeValue = PollRspData[index+4];
+
+            auto tempValue = PollRspData[index+5];
 
             std::string sensorPath = "";
             std::string dvfsTempPath = "";
@@ -240,7 +265,7 @@ void OccPollAppHandler::PushFreqSensorsToDbus(uint16_t& index )
     uint8_t bytesPerSensor = PollRspData[index++];
     uint8_t NumberSensors = PollRspData[index++];
 
-    if (SensorFormat == FREQ_SENSOR_FORMAT)
+    if (SensorFormat == FREQ_SENSOR_FORMAT_2)
     {
         for (uint16_t i = 0; i < NumberSensors; i++)
         {
@@ -276,7 +301,7 @@ void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index )
     uint8_t bytesPerSensor = PollRspData[index++];
     uint8_t NumberSensors = PollRspData[index++];
 
-    if (SensorFormat == POWR_SENSOR_FORMAT)
+    if (SensorFormat == POWR_SENSOR_FORMAT_2)
     {
         for (uint16_t i = 0; i < NumberSensors; i++)
         {
@@ -286,18 +311,15 @@ void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index )
             //  ApsChannel:    2 byte
             //  UpdateTag:     4 byte
             //  Accumulator:   8 byte
-            //  SensorCurrent: 2 byte
+            //  SensorValue:   2 byte
             //----------------------
+            uint8_t functionalID = (PollRspData[index + 4]);
+            std::string functionID = std::to_string(functionalID);
 
-            uint8_t functionalID = (static_cast<uint8_t>(PollRspData[index + 4]));
-            uint16_t SensorCurrent = (static_cast<uint32_t>(PollRspData[index + 20]) << 8) |
-                    (static_cast<uint32_t>(PollRspData[index + 21]));
+            uint16_t SensorValue = ((PollRspData[index + 20]) << 8) |
+                    (PollRspData[index + 21]);
 
             std::string sensorPath = OCC_SENSORS_ROOT + std::string("/power/");
-
-            std::stringstream ss;
-            ss << static_cast<int>(functionalID);
-            std::string functionID = ss.str();
 
             auto iter = powerSensorName.find(functionID);
             if (iter != powerSensorName.end())
@@ -305,7 +327,7 @@ void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index )
                 sensorPath.append(iter->second);
 
                 dbus::OccDBusSensors::getOccDBus().setUnit(sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-                dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, SensorCurrent);
+                dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, SensorValue);
                 dbus::OccDBusSensors::getOccDBus().setOperationalStatus(sensorPath, true);
                 if (statusObject.existingSensors.find(sensorPath) == statusObject.existingSensors.end())
                 {
@@ -351,29 +373,28 @@ void OccPollAppHandler::PushCapsSensorsToDbus(uint16_t& index )
     uint8_t bytesPerSensor = PollRspData[index++];
     uint8_t NumberSensors = PollRspData[index++];
 
-    if (SensorFormat == CAPS_SENSOR_FORMAT)
+    if (SensorFormat == CAPS_SENSOR_FORMAT_3)
     {
         for (uint16_t i = 0; i < NumberSensors; i++)
         {
             // Caps Sensor Record Data format for POLL
-            //  SensorCap:       2 byte
-            //  PollRspMaxPower: 2 byte
-            //  NCap:            2 byte
-            //  MaxCap:          2 byte
-            //  HardMinCap:      2 byte
-            //  SoftMinCap:      2 byte
-            //  UserCap:         2 byte
-            //  UserSourse:      1 byte
-            //----------------------
-
-            PollRspMaxPower = (static_cast<uint16_t>(PollRspData[index + 2]) << 8) |
-                    (static_cast<uint16_t>(PollRspData[index + 3]));
+            //  CurrentPowerCap:     2 byte
+            //  CurrentPowerReading: 2 byte
+            //  NCap:                2 byte
+            //  MaxCap:              2 byte
+            //  HardMinCap:          2 byte
+            //  SoftMinCap:          2 byte
+            //  UserCap:             2 byte
+            //  UserSourse:          1 byte
+            //-----------------------------
+            uint16_t CurrentPowerReading = ((PollRspData[index + 2]) << 8) |
+                    (PollRspData[index + 3]);
 
             std::string sensorPath = OCC_SENSORS_ROOT + std::string("/power/");
             sensorPath.append("total_power");
 
             dbus::OccDBusSensors::getOccDBus().setUnit(sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-            dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, PollRspMaxPower);
+            dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, CurrentPowerReading);
             dbus::OccDBusSensors::getOccDBus().setOperationalStatus(sensorPath, true);
             if (statusObject.existingSensors.find(sensorPath) == statusObject.existingSensors.end())
             {
@@ -383,12 +404,14 @@ void OccPollAppHandler::PushCapsSensorsToDbus(uint16_t& index )
             }
             statusObject.existingSensors[sensorPath] = occInstanceID;
 
+            PollRspMaxCap = ((PollRspData[index + 6]) << 8) |
+                    (PollRspData[index + 7]);
 
-            PollRspHardMin = (static_cast<uint32_t>(PollRspData[index + 8]) << 8) |
-                    (static_cast<uint32_t>(PollRspData[index + 9]));
+            PollRspHardMin = ((PollRspData[index + 8]) << 8) |
+                    (PollRspData[index + 9]);
 
-            PollRspSoftMin = (static_cast<uint32_t>(PollRspData[index + 10]) << 8) |
-                    (static_cast<uint32_t>(PollRspData[index + 11]));
+            PollRspSoftMin = ((PollRspData[index + 10]) << 8) |
+                    (PollRspData[index + 11]);
 
             index += bytesPerSensor;
         }
@@ -420,7 +443,7 @@ void OccPollAppHandler::PushExtnSensorsToDbus(uint16_t& index )
     uint8_t bytesPerSensor = PollRspData[index++];
     uint8_t NumberSensors = PollRspData[index++];
 
-    if (SensorFormat == EXTN_SENSOR_FORMAT)
+    if (SensorFormat == EXTN_SENSOR_FORMAT_1)
     {
         for (uint16_t i = 0; i < NumberSensors; i++)
         {
@@ -431,11 +454,10 @@ void OccPollAppHandler::PushExtnSensorsToDbus(uint16_t& index )
             //  Value:     6 byte
             //                 PWRM and PWRP last 2 bytes.
             //----------------------
-
-            const uint32_t SensorName = (static_cast<uint32_t>(PollRspData[index]) << 24) |
-                    (static_cast<uint32_t>(PollRspData[index + 1]) << 16) |
-                    (static_cast<uint32_t>(PollRspData[index + 2]) << 8) |
-                    (static_cast<uint32_t>(PollRspData[index + 3]));
+            const uint32_t SensorName = ((PollRspData[index]) << 24) |
+                    ((PollRspData[index + 1]) << 16) |
+                    ((PollRspData[index + 2]) << 8) |
+                    (PollRspData[index + 3]);
 
             bool push_power_to_dbus = false;
             std::string sensorPath = OCC_SENSORS_ROOT;
@@ -461,17 +483,14 @@ void OccPollAppHandler::PushExtnSensorsToDbus(uint16_t& index )
                     sensorPath.append("/power/chiplet" + std::to_string(occInstanceID) + "_power");
                     break;
                 case EXTN_LABEL_ERRH: break;
-                default:
-                    lg2::error("OccPollAppHandler::PushExtnSensorsToDbus: EXTN label name FAILED:{BYTE}",
-                        "BYTE", lg2::hex, SensorName);
-                    break;
+                default: break;
             }
 
             if (push_power_to_dbus == true)
             {
                 // For Power field, Convert last 4 bytes into number value
-                SensorValue = (static_cast<uint32_t>(PollRspData[index + 10]) << 8) |
-                    (static_cast<uint32_t>(PollRspData[index + 11]));
+                SensorValue = ((PollRspData[index + 10]) << 8) |
+                    (PollRspData[index + 11]);
 
                 // Convert output/DC power to input/AC power in Watts (round up)
                 uint16_t extnSensorValue =
@@ -547,7 +566,7 @@ bool OccPollAppHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHa
 
     capSoftMin = PollRspSoftMin;
     capHardMin = PollRspHardMin;
-    capMax = PollRspMaxPower;
+    capMax = PollRspMaxCap;
 
     return parmsChanged;
 } //end pollReadPcapBounds

@@ -23,13 +23,13 @@ using namespace std::literals::chrono_literals;
 
 class Status;
 
-constexpr auto POLL_VERSION_FORMAT_1 = 1;
+constexpr auto SENSOR_BLOCK_VERSION_1 = 1;
 constexpr auto TEMP_SENSOR_FORMAT_16 = 16;
-constexpr auto FREQ_SENSOR_FORMAT = 2;
-constexpr auto POWR_SENSOR_FORMAT = 2;
-constexpr auto CAPS_SENSOR_FORMAT = 3;
-constexpr auto EXTN_SENSOR_FORMAT = 1;
-constexpr auto EXTT_SENSOR_FORMAT = 10;
+constexpr auto FREQ_SENSOR_FORMAT_2 = 2;
+constexpr auto POWR_SENSOR_FORMAT_2 = 2;
+constexpr auto CAPS_SENSOR_FORMAT_3 = 3;
+constexpr auto EXTN_SENSOR_FORMAT_1 = 1;
+constexpr auto EXTT_SENSOR_FORMAT_10 = 10;
 
 /** @class OccPollAppHandler
  *  @brief Implements POLLing OCCs
@@ -87,10 +87,11 @@ class OccPollAppHandler : public OccPollHandler
 
     // Data stored for quick return of information after a POLL and Handling the POLL.
     uint16_t PollRspStatus = 0;
+    bool ValidPollRspData = false;
 
     uint16_t PollRspSoftMin = 0;
     uint16_t PollRspHardMin = 0;
-    uint16_t PollRspMaxPower = 0;
+    uint16_t PollRspMaxCap  = 0;
 
     /** @brief Create CMD to Poll OCC and send. Store POLL response data for use.
      *
@@ -133,26 +134,14 @@ class OccPollAppHandler : public OccPollHandler
      * */
     void PushExttSensorsToDbus(uint16_t& index );
 
-    // /** @brief The POLL sensor labels map */
-    enum
-    {
-        TEMP = 0,
-        FREQ,
-        POWR,
-        CAPS,
-        EXTN,
-        EXTT,
-        sizeSensorLabelList
-    };
-    const std::vector<uint8_t> SensorLabel[sizeSensorLabelList] = {
-        {0x54, 0x45, 0x4D, 0x50, 0x00}, // TEMP
-        {0x46, 0x52, 0x45, 0x51, 0x00}, // FREQ
-        {0x50, 0x4F, 0x57, 0x52, 0x00}, // POWR
-        {0x43, 0x41, 0x50, 0x53, 0x00}, // CAPS
-        {0x45, 0x58, 0x54, 0x4E, 0x00}, // EXTN
-        {0x45, 0x58, 0x54, 0x54, 0x00}, // EXTT
-    };
 
+    const uint8_t size_label = 5;
+    const std::string TEMP_label = "TEMP\0";
+    const std::string FREQ_label = "FREQ\0";
+    const std::string POWR_label = "POWR\0";
+    const std::string CAPS_label = "CAPS\0";
+    const std::string EXTN_label = "EXTN\0";
+    const std::string EXTT_label = "EXTT\0";
 
 }; //
 

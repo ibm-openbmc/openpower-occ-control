@@ -475,7 +475,7 @@ void Status::occReadStateNow()
         }
     }
 
-        // if failed to read the OCC state -> Attempt retry
+    // if failed to read the OCC state -> Attempt retry
     if (!stateWasRead)
     {
         if (sensorsValid)
