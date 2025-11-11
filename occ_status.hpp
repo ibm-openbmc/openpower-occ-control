@@ -162,7 +162,7 @@ class Status : public Interface
         return device.master();
     }
 
-    /** @brief Read OCC state (will trigger kernel to poll the OCC) */
+    /** @brief Read OCC POLL data(by trigger kernel or by direct OCC cmd) */
     void PollHandler();
 
     /** @brief Called when device errors are detected

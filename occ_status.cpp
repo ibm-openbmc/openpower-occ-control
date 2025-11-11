@@ -523,14 +523,11 @@ void Status::setSensorValueToNaN() const
 {
     for (const auto& [sensorPath, occId] : existingSensors)
     {
-        if (occId == instance)
-        {
-            dbus::OccDBusSensors::getOccDBus().setValue(
-                sensorPath, std::numeric_limits<double>::quiet_NaN());
+        dbus::OccDBusSensors::getOccDBus().setValue(
+            sensorPath, std::numeric_limits<double>::quiet_NaN());
 
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-                sensorPath, true);
-        }
+        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+            sensorPath, true);
     }
     return;
 }
@@ -539,14 +536,11 @@ void Status::setSensorValueToNonFunctional() const
 {
     for (const auto& [sensorPath, occId] : existingSensors)
     {
-        if (occId == instance)
-        {
-            dbus::OccDBusSensors::getOccDBus().setValue(
-                sensorPath, std::numeric_limits<double>::quiet_NaN());
+        dbus::OccDBusSensors::getOccDBus().setValue(
+            sensorPath, std::numeric_limits<double>::quiet_NaN());
 
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-                sensorPath, false);
-        }
+        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+            sensorPath, false);
     }
     return;
 }

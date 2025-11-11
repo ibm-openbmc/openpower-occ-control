@@ -684,6 +684,7 @@ void OccPollHandler::PushExttSensorsToDbus(uint16_t& index )
 
 }//end OCCC PushExttSensorsToDbus
 
+// Called once when the master OCC goes active. This means parms always changed.
 bool OccPollHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax)
 {
     bool parmsChanged = true;
@@ -804,6 +805,10 @@ void OccPollHandler::HandlePollAction()
     return;
 }//end Kernel HandlePollAction
 
+<<<<<<< HEAD
+=======
+// Called once when the master OCC goes active. This means parms always changed.
+>>>>>>> b9eece9 (Move OCC poll processing to occ_control)
 bool OccPollHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax)
 {
 

@@ -518,10 +518,11 @@ void Manager::statusCallBack(instanceID instance, bool status)
         // Clear OCC sensors
         for (auto& obj : statusObjects)
         {
-            // int instance = obj->getOccInstanceID();
-            obj->setSensorValueToNaN();
+            if (instance == obj->getOccInstanceID())
+            {
+                obj->setSensorValueToNaN();
+            }
         }
-
     }
 
     if (waitingForAllOccActiveSensors)
