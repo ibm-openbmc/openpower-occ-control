@@ -20,14 +20,6 @@ using namespace std::literals::chrono_literals;
 
 class Status;
 
-constexpr auto POLL_VERSION_FORMAT_1 = 1;
-constexpr auto TEMP_SENSOR_FORMAT_16 = 16;
-constexpr auto FREQ_SENSOR_FORMAT = 2;
-constexpr auto POWR_SENSOR_FORMAT = 2;
-constexpr auto CAPS_SENSOR_FORMAT = 3;
-constexpr auto EXTN_SENSOR_FORMAT = 1;
-constexpr auto EXTT_SENSOR_FORMAT = 10;
-
 constexpr auto EXTN_LABEL_FMIN = 0x464D494E;
 constexpr auto EXTN_LABEL_FDIS = 0x46444953;
 constexpr auto EXTN_LABEL_FBAS = 0x46424153;
@@ -48,27 +40,11 @@ constexpr auto EXTN_LABEL_ERRH = 0x45525248;
 class OccPollHandler
 {
   public:
-    OccPollHandler() = delete;
-    OccPollHandler(const OccPollHandler&) = delete;
-    OccPollHandler& operator=(const OccPollHandler&) = delete;
-    OccPollHandler(OccPollHandler&&) = default;
-    OccPollHandler& operator=(OccPollHandler&&) = default;
 
-    OccPollHandler(Status& status);
-
-    /**  Store the associated Status instance */
-    Status& statusObject;
-
-    const uint32_t occInstanceID;
-
-
-//##############################################################################
-// COMMON PUBLIC INTERFACES
-//##############################################################################
     /** @brief Done every 5 Sec.: From OCC Poll push data needed to the dbus.
      *
      */
-    void HandlePollAction();
+    virtual void HandlePollAction() = 0;
 
     /**
      * @brief Done when OCC goes active: From OCC Poll data returns OCC state
@@ -77,7 +53,7 @@ class OccPollHandler
      *
      *  @returns true if data gathering was success
      * */
-    bool pollReadStateStatus(unsigned int& state, int& lastOccReadStatus);
+    virtual bool pollReadStateStatus(unsigned int& state, int& lastOccReadStatus) = 0;
 
     /** @brief Done One time: From OCC Poll data returns Pcap Information.
      * @param[out] capSoftMin  - Returned soft Minimum cap
@@ -86,8 +62,7 @@ class OccPollHandler
      *
      *  @returns true if data gathering was success
      */
-    bool pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax);
-
+    virtual bool pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax) = 0;
 
     /** @brief clear OCC flags to allow trace of POLL parsing errors.
      *
@@ -99,144 +74,13 @@ class OccPollHandler
         TraceOncePwrFuncId = false;
     }
 
-
-  private:
-
-//##############################################################################
-// OCC-CONTROL Private POLL Functions.
-//##############################################################################
-#ifdef ENABLE_APP_POLL_SUPPORT
-
-    // Length of POLL Header Section.
-    const uint16_t OCC_RSP_HDR_LENGTH = 40;
-
-    // Object variable to store Response data.
-    std::vector<std::uint8_t> PollRspData;
-
-    // Data stored for quick return of information after a POLL and Handling the POLL.
-    uint16_t PollRspStatus = 0;
-
-    uint16_t PollRspSoftMin = 0;
-    uint16_t PollRspHardMin = 0;
-    uint16_t PollRspMaxPower = 0;
-
-    /** @brief Create CMD to Poll OCC and send. Store POLL response data for use.
-     *
-     */
-    void sendOccPollCmd();
-
-    /** @brief ????
-     *
-     */
-    void pollOccNow();
-
-    /**
-     * @brief .
-     * @param[in] index - index into PollRspData.
-     * */
-    void PushTempSensorsToDbus(uint16_t& index );
-
-    /**
-     * @brief .
-     * @param[in] index - index into PollRspData.
-     * */
-    void PushFreqSensorsToDbus(uint16_t& index );
-
-    /**
-     * @brief .
-     * @param[in] index - index into PollRspData.
-     * */
-    void PushPowrSensorsToDbus(uint16_t& index );
-
-    /**
-     * @brief .
-     * @param[in] index - index into PollRspData.
-     * */
-    void PushCapsSensorsToDbus(uint16_t& index );
-
-    /**
-     * @brief .
-     * @param[in] index - index into PollRspData.
-     * */
-    void PushExtnSensorsToDbus(uint16_t& index );
-
-    /**
-     * @brief .
-     * @param[in] index - index into PollRspData.
-     * */
-    void PushExttSensorsToDbus(uint16_t& index );
-
-    // /** @brief The POLL sensor labels map */
-    enum
-    {
-        TEMP = 0,
-        FREQ,
-        POWR,
-        CAPS,
-        EXTN,
-        EXTT,
-        sizeSensorLabelList
-    };
-    const std::vector<uint8_t> SensorLabel[sizeSensorLabelList] = {
-        {0x54, 0x45, 0x4D, 0x50, 0x00}, // TEMP
-        {0x46, 0x52, 0x45, 0x51, 0x00}, // FREQ
-        {0x50, 0x4F, 0x57, 0x52, 0x00}, // POWR
-        {0x43, 0x41, 0x50, 0x53, 0x00}, // CAPS
-        {0x45, 0x58, 0x54, 0x4E, 0x00}, // EXTN
-        {0x45, 0x58, 0x54, 0x54, 0x00}, // EXTT
-    };
-
-#else
-//##############################################################################
-// KERNEL Private POLL Functions.
-//##############################################################################
-    /**
-     * @brief Trigger OCC driver to read the temperature sensors and push to dbus.
-     * @param[in] path - path of the OCC sensors.
-     * @param[in] id - Id of the OCC.
-     * */
-    void pushTempSensorsToDbus(const fs::path& path, uint32_t occInstance);
-
-    /**
-     * @brief Trigger OCC driver to read the extended sensors and push to dbus.
-     * @param[in] path - path of the OCC sensors.
-     * @param[in] id - Id of the OCC.
-     * */
-    void pushExtnSensorsToDbus(const fs::path& path, uint32_t id);
-
-    /**
-     * @brief Trigger OCC driver to read the power sensors and push to dbus.
-     * @param[in] path - path of the OCC sensors.
-     * @param[in] id - Id of the OCC.
-     * */
-    void pushPowrSensorsToDbus(const fs::path& path, uint32_t id);
-    /**
-     * @brief Returns the filename to use for the user power cap
-     *
-     * The file is of the form "powerX_cap_user", where X is any
-     * number.
-     *
-     * @param[in] expr - Regular expression of file to find
-     *
-     * @return full path/filename, or empty path if not found.
-     */
-    fs::path getPcapFilename(const std::regex& expr);
-
-    /** @brief Path to the sysfs files holding the cap properties **/
-    fs::path pcapBasePathname;
-
-
-#endif
-
-
-//##############################################################################
-// COMMON Private.
-//##############################################################################
+  protected:
 
     // Flags to prevent flooding traces every 5 Sec.
     bool TraceOncePollHeader = true;
     bool TraceOncePollSensor = true;
     bool TraceOncePwrFuncId = true;
+
 
     enum occFruType
     {
@@ -250,17 +94,13 @@ class OccPollHandler
         processorIoRing = 9
     };
 
-
-    /** @brief Get FunctionID from the `powerX_label` file.
-     *  @param[in] value - the value of the `powerX_label` file.
-     *  @returns FunctionID of the power sensors.
-     */
-    std::optional<std::string> getPowerLabelFunctionID(const std::string& value);
-
-
-    /** @brief Get ????
-     *  @param[in] ????
-     *  @returns bool ????
+    /** @brief Get the sensor path and dvfs path.
+     *  @param[in] sensorPath - return path of the OCC sensor.
+     *  @param[in] dvfsTempPath - return path of the DVFS sensor.
+     *  @param[in] SensorID - Input Id of the Sensor.
+     *  @param[in] fruTypeValue - Input fru type.
+     *  @param[in] occInstance - Input Id of the OCC.
+     *  @returns bool If Sensor Found
      */
     bool BuildTempDbusPaths(std::string& sensorPath,
                             std::string& dvfsTempPath,
@@ -305,11 +145,10 @@ class OccPollHandler
         {"41", "io_dcm2_power"},   {"42", "io_dcm3_power"},
         {"43", "avdd_total_power"}};
 
-//##############################################################################
-// END
-//##############################################################################
 
-}; //
+  private:
+
+};
 
 } // namespace occ
 } // namespace open_power

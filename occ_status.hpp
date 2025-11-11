@@ -8,6 +8,11 @@
 #include "powermode.hpp"
 #include "utils.hpp"
 #include "occ_poll_handler.hpp"
+#ifdef ENABLE_APP_POLL_SUPPORT
+    #include "occ_poll_app_handler.hpp"
+#else
+    #include "occ_poll_kernel_handler.hpp"
+#endif
 
 #include <org/open_power/Control/Host/server.hpp>
 #include <org/open_power/OCC/Status/server.hpp>
@@ -95,7 +100,7 @@ class Status : public Interface
                fs::path(DEV_PATH) /
                    fs::path(sysfsName + "." + std::to_string(instance + 1)),
                managerRef, *this, powerModeRef, instance),
-        occPollHandler( *this ),
+        occPollObj( *this, instance),
         hostControlSignal(
             utils::getBus(),
             sdbusRule::type::signal() + sdbusRule::member("CommandComplete") +
@@ -116,6 +121,9 @@ class Status : public Interface
     {
         // Announce that we are ready
         this->emit_object_added();
+
+        MyPollHandler = &occPollObj;
+
     }
 
     /** @brief Since we are overriding the setter-occActive but not the
@@ -290,7 +298,13 @@ class Status : public Interface
     Device device;
 
     /** @brief OCC device object to do bind and unbind */
-    OccPollHandler occPollHandler;
+    OccPollHandler* MyPollHandler = nullptr;
+
+#ifdef ENABLE_APP_POLL_SUPPORT
+    OccPollAppHandler occPollObj;
+#else
+    OccPollKernelHandler occPollObj;
+#endif
 
     /** @brief Subscribe to host control signal
      *

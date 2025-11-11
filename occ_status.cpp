@@ -62,7 +62,7 @@ bool Status::occActive(bool value)
             {
                 // Update powercap bounds from OCC
                 uint32_t capSoftMin = 0, capHardMin = 0, capMax = 0;
-                bool parmsChanged = occPollHandler.pollReadPcapBounds(capSoftMin, capHardMin, capMax);
+                bool parmsChanged = MyPollHandler->pollReadPcapBounds(capSoftMin, capHardMin, capMax);
 
                 manager.updatePcapBounds(parmsChanged, capSoftMin, capHardMin, capMax);
             }
@@ -110,7 +110,7 @@ bool Status::occActive(bool value)
             updateThrottle(false, THROTTLED_ALL);
 
             // CALL into poll_handler to clear any trace poll flags.
-            occPollHandler.clearOccPollTraceFlags();
+            MyPollHandler->clearOccPollTraceFlags();
         }
     }
     else if (value && !device.active())
@@ -231,7 +231,7 @@ void Status::PollHandler()
 
     occReadStateNow();
 
-    occPollHandler.HandlePollAction();
+    MyPollHandler->HandlePollAction();
 
 }
 
@@ -404,7 +404,7 @@ void Status::occReadStateNow()
     unsigned int state;
     bool stateWasRead = false;
 
-    stateWasRead = occPollHandler.pollReadStateStatus(state, lastOccReadStatus);
+    stateWasRead = MyPollHandler->pollReadStateStatus(state, lastOccReadStatus);
 
     if (stateWasRead && (state != lastState))
     {

@@ -124,6 +124,16 @@ sources += [
     'occ_poll_handler.cpp',
 ]
 
+if get_option('app-poll-support').allowed()
+    sources += [
+        'occ_poll_app_handler.cpp',
+]
+else
+    sources += [
+        'occ_poll_kernel_handler.cpp',
+]
+endif
+
 if get_option('phal-support').allowed()
     deps += [cxx.find_library('pdbg'), cxx.find_library('phal')]
 endif

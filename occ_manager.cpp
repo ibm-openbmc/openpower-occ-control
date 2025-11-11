@@ -521,6 +521,7 @@ void Manager::statusCallBack(instanceID instance, bool status)
             if (instance == obj->getOccInstanceID())
             {
                 obj->setSensorValueToNaN();
+                break;
             }
         }
     }
