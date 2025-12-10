@@ -22,12 +22,6 @@ namespace open_power
 namespace occ
 {
 
-constexpr uint32_t fruTypeNotAvailable = 0xFF;
-constexpr auto fruTypeSuffix = "fru_type";
-constexpr auto faultSuffix = "fault";
-constexpr auto inputSuffix = "input";
-constexpr auto maxSuffix = "max";
-
 const auto HOST_ON_FILE = "/run/openbmc/host@0-on";
 const std::string Manager::dumpFile = "/tmp/occ_control_dump.json";
 
@@ -35,28 +29,6 @@ using namespace phosphor::logging;
 using namespace std::literals::chrono_literals;
 using json = nlohmann::json;
 
-template <typename T>
-T readFile(const std::string& path)
-{
-    std::ifstream ifs;
-    ifs.exceptions(std::ifstream::failbit | std::ifstream::badbit |
-                   std::ifstream::eofbit);
-    T data;
-
-    try
-    {
-        ifs.open(path);
-        ifs >> data;
-        ifs.close();
-    }
-    catch (const std::exception& e)
-    {
-        auto err = errno;
-        throw std::system_error(err, std::generic_category());
-    }
-
-    return data;
-}
 
 void Manager::createPldmHandle()
 {
@@ -544,7 +516,14 @@ void Manager::statusCallBack(instanceID instance, bool status)
                 "COUNT", activeCount, "INST", instance, "STATUS", status);
         }
         // Clear OCC sensors
-        setSensorValueToNaN(instance);
+        for (auto& obj : statusObjects)
+        {
+            if (instance == obj->getOccInstanceID())
+            {
+                obj->setSensorValueToNaN();
+                break;
+            }
+        }
     }
 
     if (waitingForAllOccActiveSensors)
@@ -840,22 +819,17 @@ void Manager::pollerTimerExpired()
         }
         return;
     }
-
     for (auto& obj : statusObjects)
     {
         if (!obj->occActive())
         {
             // OCC is not running yet
-            auto id = obj->getOccInstanceID();
-            setSensorValueToNaN(id);
+            obj->setSensorValueToNaN();
             continue;
         }
 
-        // Read sysfs to force kernel to poll OCC
-        obj->readOccState();
-
-        // Read occ sensor values
-        getSensorValues(obj);
+        // get OCC Poll Response and handle actions needed.
+        obj->PollHandler();
     }
 
     if (activeCount > 0)
@@ -869,522 +843,6 @@ void Manager::pollerTimerExpired()
         lg2::info(
             "Manager::pollerTimerExpired: poll timer will not be restarted");
     }
-}
-
-void Manager::readTempSensors(const fs::path& path, uint32_t occInstance)
-{
-    // There may be more than one sensor with the same FRU type
-    // and label so make two passes: the first to read the temps
-    // from sysfs, and the second to put them on D-Bus after
-    // resolving any conflicts.
-    std::map<std::string, double> sensorData;
-
-    std::regex expr{"temp\\d+_label$"}; // Example: temp5_label
-    for (auto& file : fs::directory_iterator(path))
-    {
-        if (!std::regex_search(file.path().string(), expr))
-        {
-            continue;
-        }
-
-        uint32_t labelValue{0};
-
-        try
-        {
-            labelValue = readFile<uint32_t>(file.path());
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", file.path().string(), "ERROR", e.code().value());
-            continue;
-        }
-
-        const std::string& tempLabel = "label";
-        const std::string filePathString = file.path().string().substr(
-            0, file.path().string().length() - tempLabel.length());
-
-        uint32_t fruTypeValue{0};
-        try
-        {
-            fruTypeValue = readFile<uint32_t>(filePathString + fruTypeSuffix);
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", filePathString + fruTypeSuffix, "ERROR",
-                e.code().value());
-            continue;
-        }
-
-        std::string sensorPath =
-            OCC_SENSORS_ROOT + std::string("/temperature/");
-
-        std::string dvfsTempPath;
-
-        if (fruTypeValue == VRMVdd)
-        {
-            sensorPath.append(
-                "vrm_vdd" + std::to_string(occInstance) + "_temp");
-        }
-        else if (fruTypeValue == processorIoRing)
-        {
-            sensorPath.append(
-                "proc" + std::to_string(occInstance) + "_ioring_temp");
-            dvfsTempPath = std::string{OCC_SENSORS_ROOT} + "/temperature/proc" +
-                           std::to_string(occInstance) + "_ioring_dvfs_temp";
-        }
-        else
-        {
-            uint16_t type = (labelValue & 0xFF000000) >> 24;
-            uint16_t instanceID = labelValue & 0x0000FFFF;
-
-            if (type == OCC_DIMM_TEMP_SENSOR_TYPE)
-            {
-                if (fruTypeValue == fruTypeNotAvailable)
-                {
-                    // Not all DIMM related temps are available to read
-                    // (no _input file in this case)
-                    continue;
-                }
-                auto iter = dimmTempSensorName.find(fruTypeValue);
-                if (iter == dimmTempSensorName.end())
-                {
-                    lg2::error(
-                        "readTempSensors: Fru type error! fruTypeValue = {FRU}) ",
-                        "FRU", fruTypeValue);
-                    continue;
-                }
-
-                sensorPath.append(
-                    "dimm" + std::to_string(instanceID) + iter->second);
-
-                dvfsTempPath = std::string{OCC_SENSORS_ROOT} + "/temperature/" +
-                               dimmDVFSSensorName.at(fruTypeValue);
-            }
-            else if (type == OCC_CPU_TEMP_SENSOR_TYPE)
-            {
-                if (fruTypeValue == processorCore)
-                {
-                    // The OCC reports small core temps, of which there are
-                    // two per big core.  All current P10 systems are in big
-                    // core mode, so use a big core name.
-                    uint16_t coreNum = instanceID / 2;
-                    uint16_t tempNum = instanceID % 2;
-                    sensorPath.append("proc" + std::to_string(occInstance) +
-                                      "_core" + std::to_string(coreNum) + "_" +
-                                      std::to_string(tempNum) + "_temp");
-
-                    dvfsTempPath =
-                        std::string{OCC_SENSORS_ROOT} + "/temperature/proc" +
-                        std::to_string(occInstance) + "_core_dvfs_temp";
-                }
-                else
-                {
-                    continue;
-                }
-            }
-            else
-            {
-                continue;
-            }
-        }
-
-        // The dvfs temp file only needs to be read once per chip per type.
-        if (!dvfsTempPath.empty() &&
-            !dbus::OccDBusSensors::getOccDBus().hasDvfsTemp(dvfsTempPath))
-        {
-            try
-            {
-                auto dvfsValue = readFile<double>(filePathString + maxSuffix);
-
-                dbus::OccDBusSensors::getOccDBus().setDvfsTemp(
-                    dvfsTempPath, dvfsValue * std::pow(10, -3));
-            }
-            catch (const std::system_error& e)
-            {
-                lg2::debug(
-                    "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                    "PATH", filePathString + maxSuffix, "ERROR",
-                    e.code().value());
-            }
-        }
-
-        uint32_t faultValue{0};
-        try
-        {
-            faultValue = readFile<uint32_t>(filePathString + faultSuffix);
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", filePathString + faultSuffix, "ERROR",
-                e.code().value());
-            continue;
-        }
-
-        double tempValue{0};
-        // NOTE: if OCC sends back 0xFF, kernal sets this fault value to 1.
-        if (faultValue != 0)
-        {
-            tempValue = std::numeric_limits<double>::quiet_NaN();
-        }
-        else
-        {
-            // Read the temperature
-            try
-            {
-                tempValue = readFile<double>(filePathString + inputSuffix);
-            }
-            catch (const std::system_error& e)
-            {
-                lg2::debug(
-                    "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                    "PATH", filePathString + inputSuffix, "ERROR",
-                    e.code().value());
-
-                // if errno == EAGAIN(Resource temporarily unavailable) then set
-                // temp to 0, to avoid using old temp, and affecting FAN
-                // Control.
-                if (e.code().value() == EAGAIN)
-                {
-                    tempValue = 0;
-                }
-                // else the errno would be something like
-                //     EBADF(Bad file descriptor)
-                // or ENOENT(No such file or directory)
-                else
-                {
-                    continue;
-                }
-            }
-        }
-
-        // If this object path already has a value, only overwite
-        // it if the previous one was an NaN or a smaller value.
-        auto existing = sensorData.find(sensorPath);
-        if (existing != sensorData.end())
-        {
-            // Multiple sensors found for this FRU type
-            if ((std::isnan(existing->second) && (tempValue == 0)) ||
-                ((existing->second == 0) && std::isnan(tempValue)))
-            {
-                // One of the redundant sensors has failed (0xFF/nan), and the
-                // other sensor has no reading (0), so set the FRU to NaN to
-                // force fan increase
-                tempValue = std::numeric_limits<double>::quiet_NaN();
-                existing->second = tempValue;
-            }
-            if (std::isnan(existing->second) || (tempValue > existing->second))
-            {
-                existing->second = tempValue;
-            }
-        }
-        else
-        {
-            // First sensor for this FRU type
-            sensorData[sensorPath] = tempValue;
-        }
-    }
-
-    // Now publish the values on D-Bus.
-    for (const auto& [objectPath, value] : sensorData)
-    {
-        dbus::OccDBusSensors::getOccDBus().setValue(objectPath,
-                                                    value * std::pow(10, -3));
-
-        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-            objectPath, !std::isnan(value));
-
-        if (existingSensors.find(objectPath) == existingSensors.end())
-        {
-            dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
-                objectPath, {"all_sensors"});
-        }
-        existingSensors[objectPath] = occInstance;
-    }
-}
-
-std::optional<std::string> Manager::getPowerLabelFunctionID(
-    const std::string& value)
-{
-    // If the value is "system", then the FunctionID is "system".
-    if (value == "system")
-    {
-        return value;
-    }
-
-    // If the value is not "system", then the label value have 3 numbers, of
-    // which we only care about the middle one:
-    // <sensor id>_<function id>_<apss channel>
-    // eg: The value is "0_10_5" , then the FunctionID is "10".
-    if (value.find("_") == std::string::npos)
-    {
-        return std::nullopt;
-    }
-
-    auto powerLabelValue = value.substr((value.find("_") + 1));
-
-    if (powerLabelValue.find("_") == std::string::npos)
-    {
-        return std::nullopt;
-    }
-
-    return powerLabelValue.substr(0, powerLabelValue.find("_"));
-}
-
-void Manager::readPowerSensors(const fs::path& path, uint32_t id)
-{
-    std::regex expr{"power\\d+_label$"}; // Example: power5_label
-    for (auto& file : fs::directory_iterator(path))
-    {
-        if (!std::regex_search(file.path().string(), expr))
-        {
-            continue;
-        }
-
-        std::string labelValue;
-        try
-        {
-            labelValue = readFile<std::string>(file.path());
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readPowerSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", file.path().string(), "ERROR", e.code().value());
-            continue;
-        }
-
-        auto functionID = getPowerLabelFunctionID(labelValue);
-        if (functionID == std::nullopt)
-        {
-            continue;
-        }
-
-        const std::string& tempLabel = "label";
-        const std::string filePathString = file.path().string().substr(
-            0, file.path().string().length() - tempLabel.length());
-
-        std::string sensorPath = OCC_SENSORS_ROOT + std::string("/power/");
-
-        auto iter = powerSensorName.find(*functionID);
-        if (iter == powerSensorName.end())
-        {
-            continue;
-        }
-        sensorPath.append(iter->second);
-
-        double tempValue{0};
-
-        try
-        {
-            tempValue = readFile<double>(filePathString + inputSuffix);
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readPowerSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", filePathString + inputSuffix, "ERROR",
-                e.code().value());
-            continue;
-        }
-
-        dbus::OccDBusSensors::getOccDBus().setUnit(
-            sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-
-        dbus::OccDBusSensors::getOccDBus().setValue(
-            sensorPath, tempValue * std::pow(10, -3) * std::pow(10, -3));
-
-        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-            sensorPath, true);
-
-        if (existingSensors.find(sensorPath) == existingSensors.end())
-        {
-            std::vector<std::string> fTypeList = {"all_sensors"};
-            if (iter->second == "total_power")
-            {
-                // Set sensor purpose as TotalPower
-                dbus::OccDBusSensors::getOccDBus().setPurpose(
-                    sensorPath,
-                    "xyz.openbmc_project.Sensor.Purpose.SensorPurpose.TotalPower");
-            }
-            dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
-                sensorPath, fTypeList);
-        }
-        existingSensors[sensorPath] = id;
-    }
-    return;
-}
-
-void Manager::readExtnSensors(const fs::path& path, uint32_t id)
-{
-    std::regex expr{"extn\\d+_label$"}; // Example: extn5_label
-    for (auto& file : fs::directory_iterator(path))
-    {
-        if (!std::regex_search(file.path().string(), expr))
-        {
-            continue;
-        }
-
-        // Read in Label value of the sensor from file.
-        std::string labelValue;
-        try
-        {
-            labelValue = readFile<std::string>(file.path());
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readExtnSensors:label Failed reading {PATH}, errno = {ERROR}",
-                "PATH", file.path().string(), "ERROR", e.code().value());
-            continue;
-        }
-        const std::string& tempLabel = "label";
-        const std::string filePathString = file.path().string().substr(
-            0, file.path().string().length() - tempLabel.length());
-
-        std::string sensorPath = OCC_SENSORS_ROOT + std::string("/power/");
-
-        // Labels of EXTN sections from OCC interface Document
-        //     have different formats.
-        // 0x464d494e : FMIN            0x46444953 : FDIS
-        // 0x46424153 : FBAS            0x46555400 : FUT
-        // 0x464d4158 : FMAX            0x434c4950 : CLIP
-        // 0x4d4f4445 : MODE            0x574f4643 : WOFC
-        // 0x574f4649 : WOFI            0x5057524d : PWRM
-        // 0x50575250 : PWRP            0x45525248 : ERRH
-        // Label indicating byte 5 and 6 is the current (mem,proc) power in
-        //      Watts.
-        if ((labelValue == EXTN_LABEL_PWRM_MEMORY_POWER) ||
-            (labelValue == EXTN_LABEL_PWRP_PROCESSOR_POWER))
-        {
-            // Build the dbus String for this chiplet power asset.
-            if (labelValue == EXTN_LABEL_PWRP_PROCESSOR_POWER)
-            {
-                labelValue = "_power";
-            }
-            else // else EXTN_LABEL_PWRM_MEMORY_POWER
-            {
-                labelValue = "_mem_power";
-            }
-            sensorPath.append("chiplet" + std::to_string(id) + labelValue);
-
-            // Read in data value of the sensor from file.
-            // Read in as string due to different format of data in sensors.
-            std::string extnValue;
-            try
-            {
-                extnValue = readFile<std::string>(filePathString + inputSuffix);
-            }
-            catch (const std::system_error& e)
-            {
-                lg2::debug(
-                    "readExtnSensors:value Failed reading {PATH}, errno = {ERROR}",
-                    "PATH", filePathString + inputSuffix, "ERROR",
-                    e.code().value());
-                continue;
-            }
-
-            // For Power field, Convert last 4 bytes of hex string into number
-            //   value.
-            std::stringstream ssData;
-            ssData << std::hex << extnValue.substr(extnValue.length() - 4);
-            uint16_t MyHexNumber;
-            ssData >> MyHexNumber;
-
-            // Convert output/DC power to input/AC power in Watts (round up)
-            MyHexNumber =
-                std::round(((MyHexNumber / (PS_DERATING_FACTOR / 100.0))));
-
-            dbus::OccDBusSensors::getOccDBus().setUnit(
-                sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-
-            dbus::OccDBusSensors::getOccDBus().setValue(sensorPath,
-                                                        MyHexNumber);
-
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-                sensorPath, true);
-
-            if (existingSensors.find(sensorPath) == existingSensors.end())
-            {
-                dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
-                    sensorPath, {"all_sensors"});
-            }
-
-            existingSensors[sensorPath] = id;
-        } // End Extended Power Sensors.
-    } // End For loop on files for Extended Sensors.
-    return;
-}
-
-void Manager::setSensorValueToNaN(uint32_t id) const
-{
-    for (const auto& [sensorPath, occId] : existingSensors)
-    {
-        if (occId == id)
-        {
-            dbus::OccDBusSensors::getOccDBus().setValue(
-                sensorPath, std::numeric_limits<double>::quiet_NaN());
-
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-                sensorPath, true);
-        }
-    }
-    return;
-}
-
-void Manager::setSensorValueToNonFunctional(uint32_t id) const
-{
-    for (const auto& [sensorPath, occId] : existingSensors)
-    {
-        if (occId == id)
-        {
-            dbus::OccDBusSensors::getOccDBus().setValue(
-                sensorPath, std::numeric_limits<double>::quiet_NaN());
-
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-                sensorPath, false);
-        }
-    }
-    return;
-}
-
-void Manager::getSensorValues(std::unique_ptr<Status>& occ)
-{
-    static bool tracedError[8] = {0};
-    const fs::path sensorPath = occ->getHwmonPath();
-    const uint32_t id = occ->getOccInstanceID();
-
-    if (fs::exists(sensorPath))
-    {
-        // Read temperature sensors
-        readTempSensors(sensorPath, id);
-        // Read Extended sensors
-        readExtnSensors(sensorPath, id);
-
-        if (occ->isMasterOcc())
-        {
-            // Read power sensors
-            readPowerSensors(sensorPath, id);
-        }
-        tracedError[id] = false;
-    }
-    else
-    {
-        if (!tracedError[id])
-        {
-            lg2::error(
-                "Manager::getSensorValues: OCC{INST} sensor path missing: {PATH}",
-                "INST", id, "PATH", sensorPath);
-            tracedError[id] = true;
-        }
-    }
-
-    return;
 }
 
 // Read the altitude from DBus
@@ -1698,11 +1156,12 @@ void Manager::validateOccMaster()
     }
 }
 
-void Manager::updatePcapBounds() const
+void Manager::updatePcapBounds(bool& parmsChanged,uint32_t& capSoftMin,
+                        uint32_t& capHardMin, uint32_t& capMax) const
 {
     if (pcap)
     {
-        pcap->updatePcapBounds();
+        pcap->updatePcapBounds(parmsChanged, capSoftMin, capHardMin, capMax);
     }
 }
 

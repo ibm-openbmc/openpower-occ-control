@@ -45,3 +45,10 @@ option(
     value: 'disabled',
 )
 
+option(
+    'app-poll-support',
+    type: 'feature',
+    description: 'Enable direct POLL support',
+    value: 'disabled',
+)
+

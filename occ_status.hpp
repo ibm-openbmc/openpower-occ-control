@@ -7,6 +7,12 @@
 #include "powercap.hpp"
 #include "powermode.hpp"
 #include "utils.hpp"
+#include "occ_poll_handler.hpp"
+#ifdef ENABLE_APP_POLL_SUPPORT
+    #include "occ_poll_app_handler.hpp"
+#else
+    #include "occ_poll_kernel_handler.hpp"
+#endif
 
 #include <org/open_power/Control/Host/server.hpp>
 #include <org/open_power/OCC/Status/server.hpp>
@@ -94,6 +100,7 @@ class Status : public Interface
                fs::path(DEV_PATH) /
                    fs::path(sysfsName + "." + std::to_string(instance + 1)),
                managerRef, *this, powerModeRef, instance),
+        occPollObj( *this, instance),
         hostControlSignal(
             utils::getBus(),
             sdbusRule::type::signal() + sdbusRule::member("CommandComplete") +
@@ -114,6 +121,9 @@ class Status : public Interface
     {
         // Announce that we are ready
         this->emit_object_added();
+
+        MyPollHandler = &occPollObj;
+
     }
 
     /** @brief Since we are overriding the setter-occActive but not the
@@ -160,8 +170,8 @@ class Status : public Interface
         return device.master();
     }
 
-    /** @brief Read OCC state (will trigger kernel to poll the OCC) */
-    void readOccState();
+    /** @brief Read OCC POLL data(by trigger kernel or by direct OCC cmd) */
+    void PollHandler();
 
     /** @brief Called when device errors are detected
      *
@@ -227,6 +237,21 @@ class Status : public Interface
      */
     void updateThrottle(const bool isThrottled, const uint8_t reason);
 
+    /**
+     * @brief Set all sensor values of this OCC to NaN.
+     * @param[in] id - Id of the OCC.
+     * */
+    void setSensorValueToNaN() const;
+
+    /** @brief Set all sensor values of this OCC to NaN and non functional.
+     *
+     *  @param[in] id - Id of the OCC.
+     */
+    void setSensorValueToNonFunctional() const;
+
+    /** @brief Store the existing OCC sensors on D-BUS */
+    std::map<std::string, uint32_t> existingSensors;
+
   private:
     /** @brief OCC dbus object path */
     std::string path;
@@ -271,6 +296,15 @@ class Status : public Interface
 
     /** @brief OCC device object to do bind and unbind */
     Device device;
+
+    /** @brief OCC device object to do bind and unbind */
+    OccPollHandler* MyPollHandler = nullptr;
+
+#ifdef ENABLE_APP_POLL_SUPPORT
+    OccPollAppHandler occPollObj;
+#else
+    OccPollKernelHandler occPollObj;
+#endif
 
     /** @brief Subscribe to host control signal
      *
