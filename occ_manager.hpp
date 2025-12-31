@@ -56,7 +56,7 @@ constexpr auto EXTN_LABEL_PWRP_PROCESSOR_POWER = "50575250";
 /** @class Manager
  *  @brief Builds and manages OCC objects
  */
-struct Manager
+class Manager
 {
   public:
     Manager() = delete;
