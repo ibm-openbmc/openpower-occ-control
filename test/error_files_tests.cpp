@@ -72,7 +72,7 @@ class ErrorFiles : public ::testing::Test
         fs::remove_all(occPath);
     }
 
-    sd_event* event;
+    sd_event* event = nullptr;
     int rc;
     open_power::occ::EventPtr pEvent;
     std::unique_ptr<powermode::PowerMode> powerMode = nullptr;
