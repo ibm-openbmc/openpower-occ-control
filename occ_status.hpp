@@ -67,8 +67,8 @@ class Status : public Interface
     ~Status() = default;
     Status(const Status&) = delete;
     Status& operator=(const Status&) = delete;
-    Status(Status&&) = default;
-    Status& operator=(Status&&) = default;
+    Status(Status&&) = delete;
+    Status& operator=(Status&&) = delete;
 
     /** @brief Constructs the Status object and
      *         the underlying device object
