@@ -62,7 +62,7 @@ class PassThrough : public Iface
      *
      *  @returns true if mode change was accepted
      */
-    bool setMode(const uint8_t mode, const uint16_t modeData);
+    bool setMode(const uint8_t mode, const uint16_t modeData) override;
 
   private:
     /** @brief Pass-through occ path on the bus */
