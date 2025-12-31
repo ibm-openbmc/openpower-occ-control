@@ -55,7 +55,7 @@ void Manager::findAndCreateObjects()
     {
         // Create the power mode object
         pmode = std::make_unique<powermode::PowerMode>(
-            *this, powermode::PMODE_PATH, powermode::PIPS_PATH, event);
+            powermode::PMODE_PATH, powermode::PIPS_PATH, event);
     }
 
     if (!fs::exists(HOST_ON_FILE))
