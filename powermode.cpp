@@ -48,11 +48,10 @@ using NotAllowed = sdbusplus::xyz::openbmc_project::Common::Error::NotAllowed;
      (mode == SysPwrMode::EFF_FAVOR_PERF))
 
 // Constructor
-PowerMode::PowerMode(const Manager& managerRef, const char* modePath,
-                     const char* ipsPath, EventPtr& event) :
+PowerMode::PowerMode(const char* modePath, const char* ipsPath,
+                     EventPtr& event) :
     ModeInterface(utils::getBus(), modePath,
                   ModeInterface::action::emit_no_signals),
-    manager(managerRef),
     ipsMatch(utils::getBus(),
              sdbusplus::bus::match::rules::propertiesChanged(PIPS_PATH,
                                                              PIPS_INTERFACE),
