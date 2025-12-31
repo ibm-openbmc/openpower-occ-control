@@ -6,6 +6,7 @@
 #include "utils.hpp"
 
 #include <phosphor-logging/lg2.hpp>
+#include <xyz/openbmc_project/Control/Power/Throttle/server.hpp>
 
 #include <filesystem>
 
@@ -18,6 +19,7 @@ using namespace phosphor::logging;
 
 using ThrottleObj =
     sdbusplus::xyz::openbmc_project::Control::Power::server::Throttle;
+using ThrottleReason = ThrottleObj::ThrottleReasons;
 
 // Handles updates to occActive property
 bool Status::occActive(bool value)
@@ -617,18 +619,16 @@ void Status::updateThrottle(const bool isThrottled, const uint8_t newReason)
             std::vector<ThrottleObj::ThrottleReasons> updatedCauses;
             if (throttleCause & THROTTLED_POWER)
             {
-                updatedCauses.push_back(
-                    throttleHandle->ThrottleReasons::PowerLimit);
+                updatedCauses.push_back(ThrottleReason::PowerLimit);
             }
             if (throttleCause & THROTTLED_THERMAL)
             {
-                updatedCauses.push_back(
-                    throttleHandle->ThrottleReasons::ThermalLimit);
+                updatedCauses.push_back(ThrottleReason::ThermalLimit);
             }
             if (throttleCause & THROTTLED_SAFE)
             {
                 updatedCauses.push_back(
-                    throttleHandle->ThrottleReasons::ManagementDetectedFault);
+                    ThrottleReason::ManagementDetectedFault);
             }
             throttleHandle->throttleCauses(updatedCauses);
             throttleHandle->throttled(true);
