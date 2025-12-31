@@ -24,7 +24,7 @@ class VerifyOccInput : public ::testing::Test
     }
     ~VerifyOccInput() {}
 
-    sd_event* event;
+    sd_event* event = nullptr;
     int rc;
     open_power::occ::EventPtr eventP;
 
