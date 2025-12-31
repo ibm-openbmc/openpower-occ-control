@@ -837,13 +837,13 @@ void Interface::pldmClose()
 
 #if defined(PLDM_TRANSPORT_WITH_MCTP_DEMUX)
     pldm_transport_mctp_demux_destroy(impl.mctpDemux);
-    impl.mctpDemux = NULL;
+    impl.mctpDemux = nullptr;
 #elif defined(PLDM_TRANSPORT_WITH_AF_MCTP)
     pldm_transport_af_mctp_destroy(impl.afMctp);
     impl.afMctp = NULL;
 #endif
     pldmFd = -1;
-    pldmTransport = NULL;
+    pldmTransport = nullptr;
     eventSource.reset();
 }
 
