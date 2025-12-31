@@ -41,7 +41,7 @@ constexpr auto ALTITUDE_PROP = "Value";
 /** @class Manager
  *  @brief Builds and manages OCC objects
  */
-struct Manager
+class Manager
 {
   public:
     Manager() = delete;
