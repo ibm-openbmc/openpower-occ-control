@@ -33,7 +33,7 @@ class Error
     Error(const Error&) = delete;
     Error& operator=(const Error&) = delete;
     Error(Error&&) = default;
-    Error& operator=(Error&&) = default;
+    Error& operator=(Error&&) = delete;
 
     /** @brief Constructs the Error object
      *

@@ -33,8 +33,8 @@ class PassThrough : public Iface
     ~PassThrough() = default;
     PassThrough(const PassThrough&) = delete;
     PassThrough& operator=(const PassThrough&) = delete;
-    PassThrough(PassThrough&&) = default;
-    PassThrough& operator=(PassThrough&&) = default;
+    PassThrough(PassThrough&&) = delete;
+    PassThrough& operator=(PassThrough&&) = delete;
 
     /** @brief Ctor to put pass-through d-bus object on the bus
      *  @param[in] path - Path to attach at

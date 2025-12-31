@@ -35,7 +35,7 @@ class Device
     Device(const Device&) = delete;
     Device& operator=(const Device&) = delete;
     Device(Device&&) = default;
-    Device& operator=(Device&&) = default;
+    Device& operator=(Device&&) = delete;
 
     /** @brief Constructs the Device object
      *
