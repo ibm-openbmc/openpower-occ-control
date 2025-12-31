@@ -401,6 +401,14 @@ std::vector<uint8_t> Interface::prepareSetEffecterReq(
         return std::vector<uint8_t>();
     }
 
+    // Required for clang-tidy bugprone-unchecked-optional-access check.
+    // Ensures pldmInstanceID is engaged before dereferencing its value.
+
+    if (!pldmInstanceID.has_value())
+    {
+        return std::vector<uint8_t>();
+    }
+
     std::vector<uint8_t> request(
         sizeof(pldm_msg_hdr) + sizeof(effecterId) + sizeof(effecterCount) +
         (effecterCount * sizeof(set_effecter_state_field)));
@@ -682,6 +690,9 @@ void Interface::sendPldm(const std::vector<uint8_t>& request,
         lg2::error("sendPldm: No PLDM Instance ID found!");
         return;
     }
+    // Extract local copy of PLDM instance ID to satisfy clang-tidy bugprone
+    // check.
+    const auto instanceId = *pldmInstanceID;
 
     auto rc = pldmOpen();
     if (rc)
@@ -713,8 +724,8 @@ void Interface::sendPldm(const std::vector<uint8_t>& request,
         {
             lg2::info("sendPldm: calling pldm_transport_send_msg(OCC{INST}, "
                       "instance:{ID}, {LEN} bytes, timeout {TO})",
-                      "INST", instance, "ID", pldmInstanceID.value(), "LEN",
-                      request.size(), "TO", timeout.count());
+                      "INST", instance, "ID", instanceId, "LEN", request.size(),
+                      "TO", timeout.count());
         }
         pldmResponseReceived = false;
         pldmResponseTimeout = false;
@@ -1105,6 +1116,12 @@ std::vector<uint8_t> Interface::encodeGetStateSensorRequest(uint8_t instance,
     if (!getPldmInstanceId())
     {
         lg2::error("encodeGetStateSensorRequest: failed to getPldmInstanceId");
+        return std::vector<uint8_t>();
+    }
+    // Required for clang-tidy bugprone-unchecked-optional-access check.
+    // Ensures pldmInstanceID is engaged before dereferencing its value.
+    if (!pldmInstanceID.has_value())
+    {
         return std::vector<uint8_t>();
     }
 
