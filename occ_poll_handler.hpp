@@ -2,14 +2,13 @@
 
 #include "config.h"
 
+#include "occ_errors.hpp"
+#include "utils.hpp"
+
 #include <chrono>
 #include <filesystem>
 #include <regex>
 #include <vector>
-
-#include "occ_errors.hpp"
-#include "utils.hpp"
-
 
 namespace open_power
 {
@@ -23,7 +22,7 @@ class Status;
 constexpr auto EXTN_LABEL_FMIN = 0x464D494E;
 constexpr auto EXTN_LABEL_FDIS = 0x46444953;
 constexpr auto EXTN_LABEL_FBAS = 0x46424153;
-constexpr auto EXTN_LABEL_FUT  = 0x46555400;
+constexpr auto EXTN_LABEL_FUT = 0x46555400;
 constexpr auto EXTN_LABEL_FMAX = 0x464D4158;
 constexpr auto EXTN_LABEL_CLIP = 0x434C4950;
 constexpr auto EXTN_LABEL_MODE = 0x4D4F4445;
@@ -33,6 +32,8 @@ constexpr auto EXTN_LABEL_PWRM = 0x5057524d;
 constexpr auto EXTN_LABEL_PWRP = 0x50575250;
 constexpr auto EXTN_LABEL_ERRH = 0x45525248;
 
+constexpr auto SID_TYPE_CORE = 0xC0;
+constexpr auto SID_TYPE_DIMM = 0xD0;
 
 /** @class OccPollHandler
  *  @brief Implements POLLing OCCs
@@ -40,7 +41,6 @@ constexpr auto EXTN_LABEL_ERRH = 0x45525248;
 class OccPollHandler
 {
   public:
-
     /** @brief Done every 5 Sec.: From OCC Poll push data needed to the dbus.
      *
      */
@@ -53,7 +53,8 @@ class OccPollHandler
      *
      *  @returns true if data gathering was success
      * */
-    virtual bool pollReadStateStatus(unsigned int& state, int& lastOccReadStatus) = 0;
+    virtual bool pollReadStateStatus(unsigned int& state,
+                                     int& lastOccReadStatus) = 0;
 
     /** @brief Done One time: From OCC Poll data returns Pcap Information.
      * @param[out] capSoftMin  - Returned soft Minimum cap
@@ -62,7 +63,8 @@ class OccPollHandler
      *
      *  @returns true if data gathering was success
      */
-    virtual bool pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax) = 0;
+    virtual bool pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin,
+                                    uint32_t& capMax) = 0;
 
     /** @brief clear OCC flags to allow trace of POLL parsing errors.
      *
@@ -75,12 +77,10 @@ class OccPollHandler
     }
 
   protected:
-
     // Flags to prevent flooding traces every 5 Sec.
     bool TraceOncePollHeader = true;
     bool TraceOncePollSensor = true;
     bool TraceOncePwrFuncId = true;
-
 
     enum occFruType
     {
@@ -91,7 +91,12 @@ class OccPollHandler
         VRMVdd = 6,
         PMIC = 7,
         memCtlrExSensor = 8,
-        processorIoRing = 9
+        processorIoRing = 9,
+        processorMMA = 10, // Matrix Multiply Accelerator
+        max = 11,
+        MAX_FRU_TYPES,
+        FRU_UNAVAILABLE = 0xFF
+
     };
 
     /** @brief Get the sensor path and dvfs path.
@@ -100,13 +105,13 @@ class OccPollHandler
      *  @param[in] SensorID - Input Id of the Sensor.
      *  @param[in] fruTypeValue - Input fru type.
      *  @param[in] occInstance - Input Id of the OCC.
+     *  @param[in] isHottest - true if this is hottest of this fru type.
      *  @returns bool If Sensor Found
      */
-    bool BuildTempDbusPaths(std::string& sensorPath,
-                            std::string& dvfsTempPath,
-                            const uint32_t SensorID,
-                            const uint32_t fruTypeValue,
-                            const uint32_t occInstance);
+    bool BuildTempDbusPaths(
+        std::string& sensorPath, std::string& dvfsTempPath,
+        const uint32_t SensorID, const uint32_t fruTypeValue,
+        const uint32_t occInstance, const bool isHottest = false);
 
     /** @brief The dimm temperature sensor names map  used by */
     const std::map<uint32_t, std::string> dimmTempSensorName = {
@@ -138,16 +143,13 @@ class OccPollHandler
         {"18", "storage_a_power"}, {"19", "storage_b_power"},
         {"23", "mem_cache_power"}, {"25", "p0_mem_0_power"},
         {"26", "p0_mem_1_power"},  {"27", "p0_mem_2_power"},
-        {"34", "pcie_power"},
-        {"35", "pcie_dcm0_power"}, {"36", "pcie_dcm1_power"},
-        {"37", "pcie_dcm2_power"}, {"38", "pcie_dcm3_power"},
-        {"39", "io_dcm0_power"},   {"40", "io_dcm1_power"},
-        {"41", "io_dcm2_power"},   {"42", "io_dcm3_power"},
-        {"43", "avdd_total_power"}};
-
+        {"34", "pcie_power"},      {"35", "pcie_dcm0_power"},
+        {"36", "pcie_dcm1_power"}, {"37", "pcie_dcm2_power"},
+        {"38", "pcie_dcm3_power"}, {"39", "io_dcm0_power"},
+        {"40", "io_dcm1_power"},   {"41", "io_dcm2_power"},
+        {"42", "io_dcm3_power"},   {"43", "avdd_total_power"}};
 
   private:
-
 };
 
 } // namespace occ

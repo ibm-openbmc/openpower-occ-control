@@ -62,9 +62,11 @@ bool Status::occActive(bool value)
             {
                 // Update powercap bounds from OCC
                 uint32_t capSoftMin = 0, capHardMin = 0, capMax = 0;
-                bool parmsChanged = MyPollHandler->pollReadPcapBounds(capSoftMin, capHardMin, capMax);
+                bool parmsChanged = MyPollHandler->pollReadPcapBounds(
+                    capSoftMin, capHardMin, capMax);
 
-                manager.updatePcapBounds(parmsChanged, capSoftMin, capHardMin, capMax);
+                manager.updatePcapBounds(parmsChanged, capSoftMin, capHardMin,
+                                         capMax);
             }
 
             // Call into Manager to let know that we have bound
@@ -232,7 +234,6 @@ void Status::PollHandler()
     occReadStateNow();
 
     MyPollHandler->HandlePollAction();
-
 }
 
 // Special processing that needs to happen once the OCCs change to ACTIVE state

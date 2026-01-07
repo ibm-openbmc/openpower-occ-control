@@ -1,11 +1,10 @@
-#include "occ_poll_handler.hpp"
-#include "occ_dbus.hpp"
 #include "occ_command.hpp"
+#include "occ_dbus.hpp"
+#include "occ_poll_handler.hpp"
 #include "occ_status.hpp"
 
 #include <phosphor-logging/elog-errors.hpp>
 #include <phosphor-logging/lg2.hpp>
-
 
 namespace open_power
 {
@@ -19,7 +18,6 @@ constexpr auto fruTypeSuffix = "fru_type";
 constexpr auto faultSuffix = "fault";
 constexpr auto inputSuffix = "input";
 constexpr auto maxSuffix = "max";
-
 
 template <typename T>
 T readFile(const std::string& path)
@@ -44,13 +42,10 @@ T readFile(const std::string& path)
     return data;
 }
 
-
-OccPollKernelHandler::OccPollKernelHandler(Status& status, unsigned int instance):
-      statusObject(status),
-      occInstanceID(instance)
-{
-
-}
+OccPollKernelHandler::OccPollKernelHandler(Status& status,
+                                           unsigned int instance) :
+    statusObject(status), occInstanceID(instance)
+{}
 
 std::optional<std::string> OccPollKernelHandler::getPowerLabelFunctionID(
     const std::string& value)
@@ -78,15 +73,17 @@ std::optional<std::string> OccPollKernelHandler::getPowerLabelFunctionID(
     }
 
     return powerLabelValue.substr(0, powerLabelValue.find("_"));
-}//end getPowerLabelFunctionID
+} // end getPowerLabelFunctionID
 
-bool OccPollKernelHandler::pollReadStateStatus(unsigned int& state, int& lastOccReadStatus)
+bool OccPollKernelHandler::pollReadStateStatus(unsigned int& state,
+                                               int& lastOccReadStatus)
 {
     bool stateWasRead = false;
 
     const fs::path filename =
-    fs::path(DEV_PATH) /
-    fs::path(sysfsName + "." + std::to_string(occInstanceID + 1)) / "occ_state";
+        fs::path(DEV_PATH) /
+        fs::path(sysfsName + "." + std::to_string(occInstanceID + 1)) /
+        "occ_state";
 
     std::ifstream file;
 
@@ -136,20 +133,17 @@ bool OccPollKernelHandler::pollReadStateStatus(unsigned int& state, int& lastOcc
                 "INST", occInstanceID, "ERROR", openErrno);
             lastOccReadStatus = openErrno;
         }
-
     }
 
     file.close();
 
-
     return stateWasRead;
-}//end pollReadStateStatus
+} // end pollReadStateStatus
 
 void OccPollKernelHandler::HandlePollAction()
 {
     static bool tracedError[8] = {0};
     const fs::path sensorPath = statusObject.getHwmonPath();
-
 
     if (fs::exists(sensorPath))
     {
@@ -163,10 +157,8 @@ void OccPollKernelHandler::HandlePollAction()
         {
             // Read power sensors and push to dbus
             pushPowrSensorsToDbus(sensorPath, occInstanceID);
-
         }
         tracedError[occInstanceID] = false;
-
     }
     else
     {
@@ -180,12 +172,12 @@ void OccPollKernelHandler::HandlePollAction()
     }
 
     return;
-}//end HandlePollAction
+} // end HandlePollAction
 
 // Called once when the master OCC goes active. This means parms always changed.
-bool OccPollKernelHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax)
+bool OccPollKernelHandler::pollReadPcapBounds(
+    uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax)
 {
-
     // Build the hwmon string to write the power cap bounds
     fs::path minName = getPcapFilename(std::regex{"power\\d+_cap_min$"});
     fs::path softMinName =
@@ -244,11 +236,10 @@ bool OccPollKernelHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& ca
     }
 
     return parmsChanged;
-} //end pollReadPcapBounds
+} // end pollReadPcapBounds
 
 fs::path OccPollKernelHandler::getPcapFilename(const std::regex& expr)
 {
-
     if (pcapBasePathname.empty())
     {
         pcapBasePathname = statusObject.getHwmonPath();
@@ -274,11 +265,11 @@ fs::path OccPollKernelHandler::getPcapFilename(const std::regex& expr)
 
     // return empty path
     return fs::path{};
-} //end getPcapFilename
+} // end getPcapFilename
 
-void OccPollKernelHandler::pushTempSensorsToDbus(const fs::path& path, uint32_t occInstance)
+void OccPollKernelHandler::pushTempSensorsToDbus(const fs::path& path,
+                                                 uint32_t occInstance)
 {
-
     // There may be more than one sensor with the same FRU type
     // and label so make two passes: the first to read the temps
     // from sysfs, and the second to put them on D-Bus after
@@ -325,11 +316,11 @@ void OccPollKernelHandler::pushTempSensorsToDbus(const fs::path& path, uint32_t 
             continue;
         }
 
-
         std::string sensorPath = "";
         std::string dvfsTempPath = "";
         // if no Dbus sensor found then continue
-        if ( !BuildTempDbusPaths(sensorPath, dvfsTempPath, labelValue, fruTypeValue, occInstance))
+        if (!BuildTempDbusPaths(sensorPath, dvfsTempPath, labelValue,
+                                fruTypeValue, occInstance))
         {
             continue;
         }
@@ -341,7 +332,8 @@ void OccPollKernelHandler::pushTempSensorsToDbus(const fs::path& path, uint32_t 
             try
             {
                 auto dvfsValue = readFile<double>(filePathString + maxSuffix);
-                dbus::OccDBusSensors::getOccDBus().setDvfsTemp(dvfsTempPath, dvfsValue * std::pow(10, -3));
+                dbus::OccDBusSensors::getOccDBus().setDvfsTemp(
+                    dvfsTempPath, dvfsValue * std::pow(10, -3));
             }
             catch (const std::system_error& e)
             {
@@ -433,32 +425,35 @@ void OccPollKernelHandler::pushTempSensorsToDbus(const fs::path& path, uint32_t 
     // Now publish the values on D-Bus.
     for (const auto& [objectPath, value] : sensorData)
     {
-
-        dbus::OccDBusSensors::getOccDBus().setValue(objectPath, value * std::pow(10, -3));
-        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(objectPath, !std::isnan(value));
-        if (statusObject.existingSensors.find(objectPath) == statusObject.existingSensors.end())
+        dbus::OccDBusSensors::getOccDBus().setValue(objectPath,
+                                                    value * std::pow(10, -3));
+        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+            objectPath, !std::isnan(value));
+        if (statusObject.existingSensors.find(objectPath) ==
+            statusObject.existingSensors.end())
         {
             try
             {
                 dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                     objectPath, {"all_sensors"});
             }
-            catch(const std::exception& e)
+            catch (const std::exception& e)
             {
-                lg2::error("OccPollKernelHandler::pushTempSensorsToDbus:setChassisAssociation FAILED OCC:{INST} watch:{ERROR} PATH:{PATH}",
-                    "INST", occInstanceID, "ERROR", e.what(), "PATH", objectPath );
+                lg2::error(
+                    "OccPollKernelHandler::pushTempSensorsToDbus:setChassisAssociation FAILED OCC:{INST} watch:{ERROR} PATH:{PATH}",
+                    "INST", occInstanceID, "ERROR", e.what(), "PATH",
+                    objectPath);
             }
         }
         statusObject.existingSensors[objectPath] = occInstance;
-
     }
 
     return;
-} //end pushTempSensorsToDbus
+} // end pushTempSensorsToDbus
 
-void OccPollKernelHandler::pushExtnSensorsToDbus(const fs::path& path, uint32_t occInstanceID)
+void OccPollKernelHandler::pushExtnSensorsToDbus(const fs::path& path,
+                                                 uint32_t occInstanceID)
 {
-
     std::regex expr{"extn\\d+_label$"}; // Example: extn5_label
     for (auto& file : fs::directory_iterator(path))
     {
@@ -493,8 +488,7 @@ void OccPollKernelHandler::pushExtnSensorsToDbus(const fs::path& path, uint32_t 
 
         // Labels of EXTN sections from OCC interface Document
         //     have different formats.
-        if ((SensorName == EXTN_LABEL_PWRM) ||
-            (SensorName == EXTN_LABEL_PWRP))
+        if ((SensorName == EXTN_LABEL_PWRM) || (SensorName == EXTN_LABEL_PWRP))
         {
             // Label indicating byte 5 and 6 is the current (mem,proc) power in
             //      Watts.
@@ -508,7 +502,8 @@ void OccPollKernelHandler::pushExtnSensorsToDbus(const fs::path& path, uint32_t 
             {
                 labelValue = "_mem_power";
             }
-            sensorPath.append("chiplet" + std::to_string(occInstanceID) + labelValue);
+            sensorPath.append(
+                "chiplet" + std::to_string(occInstanceID) + labelValue);
 
             // Read in data value of the sensor from file.
             // Read in as string due to different format of data in sensors.
@@ -537,10 +532,14 @@ void OccPollKernelHandler::pushExtnSensorsToDbus(const fs::path& path, uint32_t 
             extnSensorValue =
                 std::round(((extnSensorValue / (PS_DERATING_FACTOR / 100.0))));
 
-            dbus::OccDBusSensors::getOccDBus().setUnit(sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-            dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, extnSensorValue);
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(sensorPath, true);
-            if (statusObject.existingSensors.find(sensorPath) == statusObject.existingSensors.end())
+            dbus::OccDBusSensors::getOccDBus().setUnit(
+                sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
+            dbus::OccDBusSensors::getOccDBus().setValue(sensorPath,
+                                                        extnSensorValue);
+            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+                sensorPath, true);
+            if (statusObject.existingSensors.find(sensorPath) ==
+                statusObject.existingSensors.end())
             {
                 dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                     sensorPath, {"all_sensors"});
@@ -551,11 +550,11 @@ void OccPollKernelHandler::pushExtnSensorsToDbus(const fs::path& path, uint32_t 
     } // End For loop on files for Extended Sensors.
 
     return;
-} //end pushExtnSensorsToDbus
+} // end pushExtnSensorsToDbus
 
-void OccPollKernelHandler::pushPowrSensorsToDbus(const fs::path& path, uint32_t occInstanceID)
+void OccPollKernelHandler::pushPowrSensorsToDbus(const fs::path& path,
+                                                 uint32_t occInstanceID)
 {
-
     std::regex expr{"power\\d+_label$"}; // Example: power5_label
     for (auto& file : fs::directory_iterator(path))
     {
@@ -611,24 +610,29 @@ void OccPollKernelHandler::pushPowrSensorsToDbus(const fs::path& path, uint32_t 
             continue;
         }
 
-        dbus::OccDBusSensors::getOccDBus().setUnit(sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-        dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, tempValue * std::pow(10, -3) * std::pow(10, -3));
-        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(sensorPath, true);
-        if (statusObject.existingSensors.find(sensorPath) == statusObject.existingSensors.end())
+        dbus::OccDBusSensors::getOccDBus().setUnit(
+            sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
+        dbus::OccDBusSensors::getOccDBus().setValue(
+            sensorPath, tempValue * std::pow(10, -3) * std::pow(10, -3));
+        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+            sensorPath, true);
+        if (statusObject.existingSensors.find(sensorPath) ==
+            statusObject.existingSensors.end())
         {
             if (iter->second == "total_power")
             {
-                dbus::OccDBusSensors::getOccDBus().setPurpose(sensorPath,"xyz.openbmc_project.Sensor.Purpose.SensorPurpose.TotalPower");
+                dbus::OccDBusSensors::getOccDBus().setPurpose(
+                    sensorPath,
+                    "xyz.openbmc_project.Sensor.Purpose.SensorPurpose.TotalPower");
             }
             dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                 sensorPath, {"all_sensors"});
         }
         statusObject.existingSensors[sensorPath] = occInstanceID;
-
     }
 
     return;
-} //end pushPowrSensorsToDbus
+} // end pushPowrSensorsToDbus
 
 } // namespace occ
 } // namespace open_power
