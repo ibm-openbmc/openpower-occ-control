@@ -101,8 +101,8 @@ void OccPersistCapData::load()
     }
 }
 
-void PowerCap::updatePcapBounds(bool& parmsChanged,uint32_t& capSoftMin,
-                        uint32_t& capHardMin, uint32_t& capMax)
+void PowerCap::updatePcapBounds(bool& parmsChanged, uint32_t& capSoftMin,
+                                uint32_t& capHardMin, uint32_t& capMax)
 {
     if (parmsChanged)
     {

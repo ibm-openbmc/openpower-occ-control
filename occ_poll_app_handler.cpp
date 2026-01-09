@@ -1,11 +1,12 @@
-#include "occ_poll_handler.hpp"
-#include "occ_dbus.hpp"
+#include "occ_poll_app_handler.hpp"
+
 #include "occ_command.hpp"
+#include "occ_dbus.hpp"
+#include "occ_poll_handler.hpp"
 #include "occ_status.hpp"
 
 #include <phosphor-logging/elog-errors.hpp>
 #include <phosphor-logging/lg2.hpp>
-
 
 namespace open_power
 {
@@ -15,15 +16,15 @@ namespace occ
 using namespace phosphor::logging;
 using namespace std::literals::chrono_literals;
 
-
-
-OccPollAppHandler::OccPollAppHandler(Status& status, unsigned int instance) :
-      statusObject(status),
-      occInstanceID(instance)
+inline uint32_t UINT32_GET(const uint8_t* i_ptr)
 {
-
+    return (((*(i_ptr + 0)) << 24) | ((*(i_ptr + 1)) << 16) |
+            ((*(i_ptr + 2)) << 8) | (*(i_ptr + 3)));
 }
 
+OccPollAppHandler::OccPollAppHandler(Status& status, unsigned int instance) :
+    statusObject(status), occInstanceID(instance)
+{}
 
 void OccPollAppHandler::sendOccPollCmd()
 {
@@ -33,19 +34,19 @@ void OccPollAppHandler::sendOccPollCmd()
         PollRspData.clear();
     }
 
-    OccCommand occCmd(occInstanceID, (fs::path(OCC_CONTROL_ROOT) /
-                        (std::string(OCC_NAME) + std::to_string(occInstanceID)))
-                            .c_str());
+    OccCommand occCmd(occInstanceID,
+                      (fs::path(OCC_CONTROL_ROOT) /
+                       (std::string(OCC_NAME) + std::to_string(occInstanceID)))
+                          .c_str());
 
     std::vector<std::uint8_t> cmd = {0x00, 0x00, 0x01, 0x20};
 
-
     occCmd.send(cmd, PollRspData);
 
-}//end sendOccPollCmd
+} // end sendOccPollCmd
 
 bool OccPollAppHandler::pollReadStateStatus(unsigned int& state,
-    int& lastOccReadStatus)
+                                            int& lastOccReadStatus)
 {
     if (ValidPollRspData)
     {
@@ -71,7 +72,7 @@ bool OccPollAppHandler::pollReadStateStatus(unsigned int& state,
 
     return ValidPollRspData;
 
-}//end pollReadStateStatus
+} // end pollReadStateStatus
 
 void OccPollAppHandler::HandlePollAction()
 {
@@ -90,7 +91,7 @@ void OccPollAppHandler::HandlePollAction()
         //  OccsPresent:  1 byte
         //  ConfigNeed:   1 byte
         //  State:        1 byte <-Index + 4
-        PollRspStatus = PollRspData[index+4];
+        PollRspStatus = PollRspData[index + 4];
         //  Mode:         1 byte
         //  IPS:          1 byte
         //----------------------
@@ -110,45 +111,53 @@ void OccPollAppHandler::HandlePollAction()
         // Total Header is 40 bytes. -> OCC_RSP_HDR_LENGTH
 
         std::vector<uint8_t> dataLabel = {'S', 'E', 'N', 'S', 'O', 'R'};
-        if (std::equal(PollRspData.begin()+index, PollRspData.begin()+index+6, dataLabel.begin()))
+        if (std::equal(PollRspData.begin() + index,
+                       PollRspData.begin() + index + 6, dataLabel.begin()))
         {
-            index += 6; //Add offset of SENSOR TAG
+            index += 6; // Add offset of SENSOR TAG
             ValidPollRspData = true;
 
             uint8_t numBlocks = PollRspData[index++]; // SENSOR Blocks
-            uint8_t sensorBlockVersion = PollRspData[index++]; // SENSOR Block Vers
+            uint8_t sensorBlockVersion =
+                PollRspData[index++];                 // SENSOR Block Vers
 
             if (sensorBlockVersion == SENSOR_BLOCK_VERSION_1)
             {
                 for (uint16_t i = 0; i < numBlocks; i++)
                 {
                     unsigned char* rspPtr = &PollRspData[index];
-                    if (std::equal(rspPtr, rspPtr+size_label, TEMP_label.begin()))
+                    if (std::equal(rspPtr, rspPtr + size_label,
+                                   TEMP_label.begin()))
                     {
                         index += size_label;
                         PushTempSensorsToDbus(index);
                     }
-                    else if (std::equal(rspPtr, rspPtr+size_label, FREQ_label.begin()))
+                    else if (std::equal(rspPtr, rspPtr + size_label,
+                                        FREQ_label.begin()))
                     {
                         index += size_label;
                         PushFreqSensorsToDbus(index);
                     }
-                    else if (std::equal(rspPtr, rspPtr+size_label, POWR_label.begin()))
+                    else if (std::equal(rspPtr, rspPtr + size_label,
+                                        POWR_label.begin()))
                     {
                         index += size_label;
                         PushPowrSensorsToDbus(index);
                     }
-                    else if (std::equal(rspPtr, rspPtr+size_label, CAPS_label.begin()))
+                    else if (std::equal(rspPtr, rspPtr + size_label,
+                                        CAPS_label.begin()))
                     {
                         index += size_label;
                         PushCapsSensorsToDbus(index);
                     }
-                    else if (std::equal(rspPtr, rspPtr+size_label, EXTN_label.begin()))
+                    else if (std::equal(rspPtr, rspPtr + size_label,
+                                        EXTN_label.begin()))
                     {
                         index += size_label;
                         PushExtnSensorsToDbus(index);
                     }
-                    else if (std::equal(rspPtr, rspPtr+size_label, EXTT_label.begin()))
+                    else if (std::equal(rspPtr, rspPtr + size_label,
+                                        EXTT_label.begin()))
                     {
                         index += size_label;
                         PushExttSensorsToDbus(index);
@@ -159,7 +168,8 @@ void OccPollAppHandler::HandlePollAction()
             {
                 if (TraceOncePollHeader)
                 {
-                    lg2::error("OccPollAppHandler::HandlePollAction: unsuported sensor block version:{BYTE}",
+                    lg2::error(
+                        "OccPollAppHandler::HandlePollAction: unsuported sensor block version:{BYTE}",
                         "BYTE", lg2::hex, sensorBlockVersion);
                     TraceOncePollHeader = false;
                 }
@@ -169,7 +179,8 @@ void OccPollAppHandler::HandlePollAction()
         {
             if (TraceOncePollHeader)
             {
-                lg2::error("OccPollAppHandler::HandlePollAction: unsuported header:");
+                lg2::error(
+                    "OccPollAppHandler::HandlePollAction: unsuported header:");
                 dump_hex(dataLabel);
                 TraceOncePollHeader = false;
             }
@@ -178,13 +189,14 @@ void OccPollAppHandler::HandlePollAction()
     }
     else
     {
-        lg2::error("OccPollAppHandler::HandlePollAction: invalid header size:{VALUE}",
+        lg2::error(
+            "OccPollAppHandler::HandlePollAction: invalid header size:{VALUE}",
             "VALUE", PollRspData.size());
         ValidPollRspData = false;
     }
-}//end HandlePollAction
+} // end HandlePollAction
 
-void OccPollAppHandler::PushTempSensorsToDbus(uint16_t& index )
+void OccPollAppHandler::PushTempSensorsToDbus(uint16_t& index)
 {
     // Temp Sensor Header Data format for POLL
     //  SensorFormat:   1 byte
@@ -198,51 +210,84 @@ void OccPollAppHandler::PushTempSensorsToDbus(uint16_t& index )
 
     if (SensorFormat == TEMP_SENSOR_FORMAT_16)
     {
+        // Find hottest temperature for each fru type
+        struct fru_temp_t
+        {
+            uint32_t sensorId;
+            uint8_t temp;
+            uint8_t dvfsTemp;
+        };
+        struct fru_temp_t hottest[MAX_FRU_TYPES] = {{0, 0, 0}};
         for (uint16_t i = 0; i < NumberSensors; i++)
         {
             // Temp Sensor Record Data format for POLL
             //  SensorID:     4 byte
             //  fruTypeValue: 1 byte
             //  tempValue:    1 byte
+            //  throttleTemp: 1 byte
+            //  errorTemp:    1 byte
             //----------------------
-            uint32_t SensorID = ((PollRspData[index]) << 24) |
-                    ((PollRspData[index + 1]) << 16) |
-                    ((PollRspData[index + 2]) << 8) |
-                    ((PollRspData[index + 3]));
-
-            uint32_t fruTypeValue = PollRspData[index+4];
-
-            auto tempValue = PollRspData[index+5];
-
-            std::string sensorPath = "";
-            std::string dvfsTempPath = "";
-            // if Dbus sensor found , and good FruType and value not 0, then continue
-            if ((BuildTempDbusPaths(sensorPath, dvfsTempPath, SensorID, fruTypeValue, occInstanceID)))
+            const uint32_t SensorID = UINT32_GET(&PollRspData[index]);
+            const uint8_t fruTypeValue = PollRspData[index + 4];
+            if (fruTypeValue < MAX_FRU_TYPES)
             {
-
-                dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, tempValue );
-                dbus::OccDBusSensors::getOccDBus().setOperationalStatus(sensorPath, !std::isnan(tempValue));
-                if (!dvfsTempPath.empty() && !dbus::OccDBusSensors::getOccDBus().hasDvfsTemp(dvfsTempPath))
+                const uint8_t tempValue = PollRspData[index + 5];
+                const uint8_t dvfsValue = PollRspData[index + 6];
+                if (tempValue > hottest[fruTypeValue].temp)
                 {
-                    auto dvfsValue = PollRspData[index+5];
-                    dbus::OccDBusSensors::getOccDBus().setDvfsTemp(dvfsTempPath, dvfsValue );
+                    hottest[fruTypeValue].sensorId = SensorID;
+                    hottest[fruTypeValue].temp = tempValue;
+                    hottest[fruTypeValue].dvfsTemp = dvfsValue;
                 }
-                if (statusObject.existingSensors.find(sensorPath) == statusObject.existingSensors.end())
+            }
+            else if (fruTypeValue != FRU_UNAVAILABLE)
+            {
+                if (TraceOncePollHeader)
                 {
-                    dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
-                        sensorPath, {"all_sensors"});
+                    lg2::error(
+                        "PushTempSensorsToDbus: invalid FRU type in POLL response:{FRU}",
+                        "FRU", fruTypeValue);
+                    TraceOncePollHeader = false;
                 }
-                statusObject.existingSensors[sensorPath] = occInstanceID;
-
             }
             index += bytesPerSensor;
+        }
+
+        for (size_t fruType = 0; fruType < MAX_FRU_TYPES; fruType++)
+        {
+            if (hottest[fruType].sensorId != 0)
+            {
+                std::string sensorPath = "";
+                std::string dvfsTempPath = "";
+                // if Dbus sensor found and good FruType and value not 0, then
+                // update hottest temp on dbus
+                if ((BuildTempDbusPaths(sensorPath, dvfsTempPath,
+                                        hottest[fruType].sensorId, fruType,
+                                        occInstanceID, true)))
+                {
+                    dbus::OccDBusSensors::getOccDBus().setValue(
+                        sensorPath, hottest[fruType].temp);
+                    dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+                        sensorPath, !std::isnan(hottest[fruType].temp));
+                    if (!dvfsTempPath.empty() &&
+                        !dbus::OccDBusSensors::getOccDBus().hasDvfsTemp(
+                            dvfsTempPath))
+                    {
+                        dbus::OccDBusSensors::getOccDBus().setDvfsTemp(
+                            dvfsTempPath, hottest[fruType].dvfsTemp);
+                    }
+                    // Chassis Association will be set in EXTT section (since
+                    // that contains all sensors)
+                }
+            }
         }
     }
     else
     {
         if (TraceOncePollSensor)
         {
-            lg2::error("OccPollAppHandler::PushTempSensorsToDbus: unsuported format:{BYTE}",
+            lg2::error(
+                "OccPollAppHandler::PushTempSensorsToDbus: unsuported format:{BYTE}",
                 "BYTE", lg2::hex, SensorFormat);
             TraceOncePollSensor = false;
         }
@@ -250,10 +295,9 @@ void OccPollAppHandler::PushTempSensorsToDbus(uint16_t& index )
         index += bytesPerSensor * NumberSensors;
     }
 
+} // end PushTempSensorsToDbus
 
-}//end PushTempSensorsToDbus
-
-void OccPollAppHandler::PushFreqSensorsToDbus(uint16_t& index )
+void OccPollAppHandler::PushFreqSensorsToDbus(uint16_t& index)
 {
     // Freq Sensor Header Data format for POLL
     //  SensorFormat:   1 byte
@@ -281,15 +325,16 @@ void OccPollAppHandler::PushFreqSensorsToDbus(uint16_t& index )
     {
         if (TraceOncePollSensor)
         {
-            lg2::error("OccPollAppHandler::PushFreqSensorsToDbus: unsuported format :{BYTE}",
+            lg2::error(
+                "OccPollAppHandler::PushFreqSensorsToDbus: unsuported format :{BYTE}",
                 "BYTE", lg2::hex, SensorFormat);
             TraceOncePollSensor = false;
         }
         index += bytesPerSensor * NumberSensors;
     }
-}//end PushFreqSensorsToDbus
+} // end PushFreqSensorsToDbus
 
-void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index )
+void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index)
 {
     // Powr Sensor Header Data format for POLL
     //  SensorFormat:   1 byte
@@ -317,7 +362,7 @@ void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index )
             std::string functionID = std::to_string(functionalID);
 
             uint16_t SensorValue = ((PollRspData[index + 20]) << 8) |
-                    (PollRspData[index + 21]);
+                                   (PollRspData[index + 21]);
 
             std::string sensorPath = OCC_SENSORS_ROOT + std::string("/power/");
 
@@ -326,10 +371,14 @@ void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index )
             {
                 sensorPath.append(iter->second);
 
-                dbus::OccDBusSensors::getOccDBus().setUnit(sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-                dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, SensorValue);
-                dbus::OccDBusSensors::getOccDBus().setOperationalStatus(sensorPath, true);
-                if (statusObject.existingSensors.find(sensorPath) == statusObject.existingSensors.end())
+                dbus::OccDBusSensors::getOccDBus().setUnit(
+                    sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
+                dbus::OccDBusSensors::getOccDBus().setValue(sensorPath,
+                                                            SensorValue);
+                dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+                    sensorPath, true);
+                if (statusObject.existingSensors.find(sensorPath) ==
+                    statusObject.existingSensors.end())
                 {
                     dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                         sensorPath, {"all_sensors"});
@@ -340,7 +389,9 @@ void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index )
             {
                 if ((functionalID != 0) && (TraceOncePwrFuncId))
                 {
-                    lg2::error("OccPollAppHandler::PushPowrSensorsToDbus: functionID({FXID}) unsuported power sensor name", "FXID", functionID);
+                    lg2::error(
+                        "OccPollAppHandler::PushPowrSensorsToDbus: functionID({FXID}) unsuported power sensor name",
+                        "FXID", functionID);
                     TraceOncePwrFuncId = false;
                 }
             }
@@ -351,7 +402,8 @@ void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index )
     {
         if (TraceOncePollSensor)
         {
-            lg2::error("OccPollAppHandler::PushPowrSensorsToDbus: unsuported format:{BYTE}",
+            lg2::error(
+                "OccPollAppHandler::PushPowrSensorsToDbus: unsuported format:{BYTE}",
                 "BYTE", lg2::hex, SensorFormat);
             TraceOncePollSensor = false;
         }
@@ -359,9 +411,9 @@ void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index )
         index += bytesPerSensor * NumberSensors;
     }
 
-}//end PushPowrSensorsToDbus
+} // end PushPowrSensorsToDbus
 
-void OccPollAppHandler::PushCapsSensorsToDbus(uint16_t& index )
+void OccPollAppHandler::PushCapsSensorsToDbus(uint16_t& index)
 {
     // Caps Sensor Header Data format for POLL
     //  SensorFormat:   1 byte
@@ -387,31 +439,37 @@ void OccPollAppHandler::PushCapsSensorsToDbus(uint16_t& index )
             //  UserCap:             2 byte
             //  UserSourse:          1 byte
             //-----------------------------
-            uint16_t CurrentPowerReading = ((PollRspData[index + 2]) << 8) |
-                    (PollRspData[index + 3]);
+            uint16_t CurrentPowerReading =
+                ((PollRspData[index + 2]) << 8) | (PollRspData[index + 3]);
 
             std::string sensorPath = OCC_SENSORS_ROOT + std::string("/power/");
             sensorPath.append("total_power");
 
-            dbus::OccDBusSensors::getOccDBus().setUnit(sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-            dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, CurrentPowerReading);
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(sensorPath, true);
-            if (statusObject.existingSensors.find(sensorPath) == statusObject.existingSensors.end())
+            dbus::OccDBusSensors::getOccDBus().setUnit(
+                sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
+            dbus::OccDBusSensors::getOccDBus().setValue(sensorPath,
+                                                        CurrentPowerReading);
+            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+                sensorPath, true);
+            if (statusObject.existingSensors.find(sensorPath) ==
+                statusObject.existingSensors.end())
             {
-                dbus::OccDBusSensors::getOccDBus().setPurpose(sensorPath,"xyz.openbmc_project.Sensor.Purpose.SensorPurpose.TotalPower");
+                dbus::OccDBusSensors::getOccDBus().setPurpose(
+                    sensorPath,
+                    "xyz.openbmc_project.Sensor.Purpose.SensorPurpose.TotalPower");
                 dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                     sensorPath, {"all_sensors"});
             }
             statusObject.existingSensors[sensorPath] = occInstanceID;
 
             PollRspMaxCap = ((PollRspData[index + 6]) << 8) |
-                    (PollRspData[index + 7]);
+                            (PollRspData[index + 7]);
 
             PollRspHardMin = ((PollRspData[index + 8]) << 8) |
-                    (PollRspData[index + 9]);
+                             (PollRspData[index + 9]);
 
             PollRspSoftMin = ((PollRspData[index + 10]) << 8) |
-                    (PollRspData[index + 11]);
+                             (PollRspData[index + 11]);
 
             index += bytesPerSensor;
         }
@@ -420,19 +478,18 @@ void OccPollAppHandler::PushCapsSensorsToDbus(uint16_t& index )
     {
         if (TraceOncePollSensor)
         {
-            lg2::error("OccPollAppHandler::PushCapsSensorFormat: unsuported format :{BYTE}",
+            lg2::error(
+                "OccPollAppHandler::PushCapsSensorFormat: unsuported format :{BYTE}",
                 "BYTE", lg2::hex, SensorFormat);
             TraceOncePollSensor = false;
         }
 
-            index += bytesPerSensor * NumberSensors;
+        index += bytesPerSensor * NumberSensors;
     }
 
+} // end PushCapsSensorsToDbus
 
-
-}//end PushCapsSensorsToDbus
-
-void OccPollAppHandler::PushExtnSensorsToDbus(uint16_t& index )
+void OccPollAppHandler::PushExtnSensorsToDbus(uint16_t& index)
 {
     // Extn Sensor Header Data format for POLL
     //  SensorFormat: 1 byte
@@ -454,52 +511,67 @@ void OccPollAppHandler::PushExtnSensorsToDbus(uint16_t& index )
             //  Value:     6 byte
             //                 PWRM and PWRP last 2 bytes.
             //----------------------
-            const uint32_t SensorName = ((PollRspData[index]) << 24) |
-                    ((PollRspData[index + 1]) << 16) |
-                    ((PollRspData[index + 2]) << 8) |
-                    (PollRspData[index + 3]);
+            const uint32_t SensorID = UINT32_GET(&PollRspData[index]);
 
             bool push_power_to_dbus = false;
             std::string sensorPath = OCC_SENSORS_ROOT;
             uint32_t SensorValue = 0;
 
-            switch (SensorName)
+            switch (SensorID)
             {
-                case EXTN_LABEL_FMIN: break;
-                case EXTN_LABEL_FDIS: break;
-                case EXTN_LABEL_FBAS: break;
-                case EXTN_LABEL_FUT:  break;
-                case EXTN_LABEL_FMAX: break;
-                case EXTN_LABEL_CLIP: break;
-                case EXTN_LABEL_MODE: break;
-                case EXTN_LABEL_WOFC: break;
-                case EXTN_LABEL_WOFI: break;
+                case EXTN_LABEL_FMIN:
+                    break;
+                case EXTN_LABEL_FDIS:
+                    break;
+                case EXTN_LABEL_FBAS:
+                    break;
+                case EXTN_LABEL_FUT:
+                    break;
+                case EXTN_LABEL_FMAX:
+                    break;
+                case EXTN_LABEL_CLIP:
+                    break;
+                case EXTN_LABEL_MODE:
+                    break;
+                case EXTN_LABEL_WOFC:
+                    break;
+                case EXTN_LABEL_WOFI:
+                    break;
                 case EXTN_LABEL_PWRM:
                     push_power_to_dbus = true;
-                    sensorPath.append("/power/chiplet" + std::to_string(occInstanceID) + "_mem_power");
+                    sensorPath.append(
+                        "/power/chiplet" + std::to_string(occInstanceID) +
+                        "_mem_power");
                     break;
                 case EXTN_LABEL_PWRP:
                     push_power_to_dbus = true;
-                    sensorPath.append("/power/chiplet" + std::to_string(occInstanceID) + "_power");
+                    sensorPath.append("/power/chiplet" +
+                                      std::to_string(occInstanceID) + "_power");
                     break;
-                case EXTN_LABEL_ERRH: break;
-                default: break;
+                case EXTN_LABEL_ERRH:
+                    break;
+                default:
+                    break;
             }
 
             if (push_power_to_dbus == true)
             {
                 // For Power field, Convert last 4 bytes into number value
                 SensorValue = ((PollRspData[index + 10]) << 8) |
-                    (PollRspData[index + 11]);
+                              (PollRspData[index + 11]);
 
                 // Convert output/DC power to input/AC power in Watts (round up)
                 uint16_t extnSensorValue =
                     std::round(((SensorValue / (PS_DERATING_FACTOR / 100.0))));
 
-                dbus::OccDBusSensors::getOccDBus().setUnit(sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-                dbus::OccDBusSensors::getOccDBus().setValue(sensorPath, extnSensorValue );
-                dbus::OccDBusSensors::getOccDBus().setOperationalStatus(sensorPath, !std::isnan(extnSensorValue));
-                if (statusObject.existingSensors.find(sensorPath) == statusObject.existingSensors.end())
+                dbus::OccDBusSensors::getOccDBus().setUnit(
+                    sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
+                dbus::OccDBusSensors::getOccDBus().setValue(sensorPath,
+                                                            extnSensorValue);
+                dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+                    sensorPath, !std::isnan(extnSensorValue));
+                if (statusObject.existingSensors.find(sensorPath) ==
+                    statusObject.existingSensors.end())
                 {
                     dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                         sensorPath, {"all_sensors"});
@@ -508,25 +580,23 @@ void OccPollAppHandler::PushExtnSensorsToDbus(uint16_t& index )
             }
             index += bytesPerSensor;
         }
-
     }
     else
     {
         if (TraceOncePollSensor)
         {
-            lg2::error("OccPollAppHandler::PushExtnSensorsToDbus: unsuported format:{BYTE}",
+            lg2::error(
+                "OccPollAppHandler::PushExtnSensorsToDbus: unsuported format:{BYTE}",
                 "BYTE", lg2::hex, SensorFormat);
             TraceOncePollSensor = false;
         }
 
         index += bytesPerSensor * NumberSensors;
-
     }
 
+} // end PushExtnSensorsToDbus
 
-}//end PushExtnSensorsToDbus
-
-void OccPollAppHandler::PushExttSensorsToDbus(uint16_t& index )
+void OccPollAppHandler::PushExttSensorsToDbus(uint16_t& index)
 {
     // Extn Sensor Header Data format for POLL
     //  SensorFormat: 1 byte
@@ -538,27 +608,58 @@ void OccPollAppHandler::PushExttSensorsToDbus(uint16_t& index )
     uint8_t bytesPerSensor = PollRspData[index++];
     uint8_t NumberSensors = PollRspData[index++];
 
-
-    if (TraceOncePollSensor)
+    if (SensorFormat == 16)
     {
-        lg2::error("OccPollAppHandler::PushExttSensorsToDbus: unsuported format:{BYTE}",
-            "BYTE", lg2::hex, SensorFormat);
-        TraceOncePollSensor = false;
+        for (uint16_t i = 0; i < NumberSensors; i++)
+        {
+            // Extended Temp Sensor Record Data format for POLL
+            //  SensorID:  4 byte
+            //  FruType:   1 byte
+            //  Value:     1 byte
+            //----------------------
+            const uint32_t SensorID = UINT32_GET(&PollRspData[index]);
+            const auto fruType = PollRspData[index + 4];
+            const auto temperature = PollRspData[index + 5];
+
+            std::string sensorPath = "";
+            std::string dvfsTempPath = "";
+            // if Dbus sensor found, and good FruType and value not 0, then
+            // continue
+            if ((BuildTempDbusPaths(sensorPath, dvfsTempPath, SensorID, fruType,
+                                    occInstanceID)))
+            {
+                dbus::OccDBusSensors::getOccDBus().setValue(sensorPath,
+                                                            temperature);
+                dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
+                    sensorPath, !std::isnan(temperature));
+                if (statusObject.existingSensors.find(sensorPath) ==
+                    statusObject.existingSensors.end())
+                {
+                    dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
+                        sensorPath, {"all_sensors"});
+                }
+                statusObject.existingSensors[sensorPath] = occInstanceID;
+            }
+            index += bytesPerSensor;
+        }
+    }
+    else
+    {
+        if (TraceOncePollSensor)
+        {
+            lg2::error(
+                "OccPollAppHandler::PushExttSensorsToDbus: unsuported format:{BYTE}",
+                "BYTE", lg2::hex, SensorFormat);
+            TraceOncePollSensor = false;
+        }
+        index += bytesPerSensor * NumberSensors;
     }
 
-    //Temp to jump over section until format data put in.
-    index += bytesPerSensor * NumberSensors;
-
-    // Extt PROPOSED Sensor Record Data format for POLL
-    //  SensorID:  4 byte
-    //  FruType:   1 byte
-    //  Value:     1 byte
-    //----------------------
-
-}//end PushExttSensorsToDbus
+} // end PushExttSensorsToDbus
 
 // Called once when the master OCC goes active. This means parms always changed.
-bool OccPollAppHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax)
+bool OccPollAppHandler::pollReadPcapBounds(
+    uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax)
 {
     bool parmsChanged = true;
 
@@ -569,7 +670,7 @@ bool OccPollAppHandler::pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHa
     capMax = PollRspMaxCap;
 
     return parmsChanged;
-} //end pollReadPcapBounds
+} // end pollReadPcapBounds
 
 } // namespace occ
 } // namespace open_power

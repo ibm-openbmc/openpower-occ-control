@@ -1,18 +1,16 @@
 #pragma once
 
+#include "config.h"
+
+#include "occ_errors.hpp"
 #include "occ_poll_handler.hpp"
 #include "occ_status.hpp"
-
-#include "config.h"
+#include "utils.hpp"
 
 #include <chrono>
 #include <filesystem>
 #include <regex>
 #include <vector>
-
-#include "occ_errors.hpp"
-#include "utils.hpp"
-
 
 namespace open_power
 {
@@ -29,7 +27,6 @@ constexpr auto FREQ_SENSOR_FORMAT_2 = 2;
 constexpr auto POWR_SENSOR_FORMAT_2 = 2;
 constexpr auto CAPS_SENSOR_FORMAT_3 = 3;
 constexpr auto EXTN_SENSOR_FORMAT_1 = 1;
-constexpr auto EXTT_SENSOR_FORMAT_10 = 10;
 
 /** @class OccPollAppHandler
  *  @brief Implements POLLing OCCs
@@ -45,7 +42,6 @@ class OccPollAppHandler : public OccPollHandler
 
     OccPollAppHandler(Status& status, unsigned int instance);
 
-
     /** @brief Done every 5 Sec.: From OCC Poll push data needed to the dbus.
      *
      */
@@ -58,7 +54,8 @@ class OccPollAppHandler : public OccPollHandler
      *
      *  @returns true if data gathering was success
      * */
-    bool pollReadStateStatus(unsigned int& state, int& lastOccReadStatus) override;
+    bool pollReadStateStatus(unsigned int& state,
+                             int& lastOccReadStatus) override;
 
     /** @brief Done One time: From OCC Poll data returns Pcap Information.
      * @param[out] capSoftMin  - Returned soft Minimum cap
@@ -67,17 +64,14 @@ class OccPollAppHandler : public OccPollHandler
      *
      *  @returns true if data gathering was success
      */
-    bool pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax) override;
-
-
+    bool pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin,
+                            uint32_t& capMax) override;
 
   private:
-
     /**  Store the associated Status instance */
     Status& statusObject;
 
     const unsigned int occInstanceID;
-
 
     // Length of POLL Header Section.
     const uint16_t OCC_RSP_HDR_LENGTH = 40;
@@ -85,15 +79,17 @@ class OccPollAppHandler : public OccPollHandler
     // Object variable to store Response data.
     std::vector<std::uint8_t> PollRspData;
 
-    // Data stored for quick return of information after a POLL and Handling the POLL.
+    // Data stored for quick return of information after a POLL and Handling the
+    // POLL.
     uint16_t PollRspStatus = 0;
     bool ValidPollRspData = false;
 
     uint16_t PollRspSoftMin = 0;
     uint16_t PollRspHardMin = 0;
-    uint16_t PollRspMaxCap  = 0;
+    uint16_t PollRspMaxCap = 0;
 
-    /** @brief Create CMD to Poll OCC and send. Store POLL response data for use.
+    /** @brief Create CMD to Poll OCC and send. Store POLL response data for
+     * use.
      *
      */
     void sendOccPollCmd();
@@ -102,38 +98,39 @@ class OccPollAppHandler : public OccPollHandler
      * @brief Take Poll response data and push Temp Sensors onto dbus.
      * @param[in] index - index into PollRspData.
      * */
-    void PushTempSensorsToDbus(uint16_t& index );
+    void PushTempSensorsToDbus(uint16_t& index);
 
     /**
      * @brief Take Poll response data and push select Frequencies onto dbus.
      * @param[in] index - index into PollRspData.
      * */
-    void PushFreqSensorsToDbus(uint16_t& index );
+    void PushFreqSensorsToDbus(uint16_t& index);
 
     /**
      * @brief Take Poll response data and push select Power Values onto dbus.
      * @param[in] index - index into PollRspData.
      * */
-    void PushPowrSensorsToDbus(uint16_t& index );
+    void PushPowrSensorsToDbus(uint16_t& index);
 
     /**
-     * @brief Take Poll response data and push select Power and Power Caps onto dbus.
+     * @brief Take Poll response data and push select Power and Power Caps onto
+     * dbus.
      * @param[in] index - index into PollRspData.
      * */
-    void PushCapsSensorsToDbus(uint16_t& index );
+    void PushCapsSensorsToDbus(uint16_t& index);
 
     /**
-     * @brief Take Poll response data and push select Power and extra data onto dbus.
+     * @brief Take Poll response data and push select Power and extra data onto
+     * dbus.
      * @param[in] index - index into PollRspData.
      * */
-    void PushExtnSensorsToDbus(uint16_t& index );
+    void PushExtnSensorsToDbus(uint16_t& index);
 
     /**
      * @brief Take Poll response data and push select data onto dbus.
      * @param[in] index - index into PollRspData.
      * */
-    void PushExttSensorsToDbus(uint16_t& index );
-
+    void PushExttSensorsToDbus(uint16_t& index);
 
     const uint8_t size_label = 5;
     const std::string TEMP_label = "TEMP\0";

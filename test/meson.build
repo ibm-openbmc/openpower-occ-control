@@ -34,7 +34,15 @@ test_sources = [
     '../powermode.cpp',
     '../utils.cpp',
     occ_sensor_hpp,
+    '../occ_poll_handler.cpp',
 ]
+
+if get_option('app-poll-support').allowed()
+    test_sources += ['../occ_poll_app_handler.cpp']
+else
+    test_sources += ['../occ_poll_kernel_handler.cpp']
+endif
+
 
 tests = ['error_files_tests.cpp', 'occ_dbus_test.cpp', 'utest.cpp']
 

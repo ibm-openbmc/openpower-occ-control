@@ -113,8 +113,8 @@ struct Manager
                         uint16_t& altitude) const;
 
     /** @brief Notify pcap object to update bounds */
-    void updatePcapBounds(bool& parmsChanged,uint32_t& capSoftMin,
-                        uint32_t& capHardMin, uint32_t& capMax) const;
+    void updatePcapBounds(bool& parmsChanged, uint32_t& capSoftMin,
+                          uint32_t& capHardMin, uint32_t& capMax) const;
 
     /** @brief Clear any state flags that need to be reset when the host state
      * is off */

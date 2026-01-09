@@ -29,7 +29,6 @@ using namespace phosphor::logging;
 using namespace std::literals::chrono_literals;
 using json = nlohmann::json;
 
-
 void Manager::createPldmHandle()
 {
     pldmHandle = std::make_unique<pldm::Interface>(
@@ -1156,8 +1155,8 @@ void Manager::validateOccMaster()
     }
 }
 
-void Manager::updatePcapBounds(bool& parmsChanged,uint32_t& capSoftMin,
-                        uint32_t& capHardMin, uint32_t& capMax) const
+void Manager::updatePcapBounds(bool& parmsChanged, uint32_t& capSoftMin,
+                               uint32_t& capHardMin, uint32_t& capMax) const
 {
     if (pcap)
     {

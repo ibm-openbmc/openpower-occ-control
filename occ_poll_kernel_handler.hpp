@@ -1,18 +1,16 @@
 #pragma once
 
+#include "config.h"
+
+#include "occ_errors.hpp"
 #include "occ_poll_handler.hpp"
 #include "occ_status.hpp"
-
-#include "config.h"
+#include "utils.hpp"
 
 #include <chrono>
 #include <filesystem>
 #include <regex>
 #include <vector>
-
-#include "occ_errors.hpp"
-#include "utils.hpp"
-
 
 namespace open_power
 {
@@ -37,7 +35,6 @@ class OccPollKernelHandler : public OccPollHandler
 
     OccPollKernelHandler(Status& status, unsigned int instance);
 
-
     /** @brief Done every 5 Sec.: From OCC Poll push data needed to the dbus.
      *
      */
@@ -50,7 +47,8 @@ class OccPollKernelHandler : public OccPollHandler
      *
      *  @returns true if data gathering was success
      * */
-    bool pollReadStateStatus(unsigned int& state, int& lastOccReadStatus) override;
+    bool pollReadStateStatus(unsigned int& state,
+                             int& lastOccReadStatus) override;
 
     /** @brief Done One time: From OCC Poll data returns Pcap Information.
      * @param[out] capSoftMin  - Returned soft Minimum cap
@@ -59,18 +57,18 @@ class OccPollKernelHandler : public OccPollHandler
      *
      *  @returns true if data gathering was success
      */
-    bool pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin, uint32_t& capMax) override;
-
+    bool pollReadPcapBounds(uint32_t& capSoftMin, uint32_t& capHardMin,
+                            uint32_t& capMax) override;
 
   private:
-
     /**  Store the associated Status instance */
     Status& statusObject;
 
     const unsigned int occInstanceID;
 
     /**
-     * @brief Trigger OCC driver to read the temperature sensors and push to dbus.
+     * @brief Trigger OCC driver to read the temperature sensors and push to
+     * dbus.
      * @param[in] path - path of the OCC sensors.
      * @param[in] id - Id of the OCC.
      * */
@@ -108,7 +106,8 @@ class OccPollKernelHandler : public OccPollHandler
      *  @param[in] value - the value of the `powerX_label` file.
      *  @returns FunctionID of the power sensors.
      */
-    std::optional<std::string> getPowerLabelFunctionID(const std::string& value);
+    std::optional<std::string> getPowerLabelFunctionID(
+        const std::string& value);
 
 }; //
 
