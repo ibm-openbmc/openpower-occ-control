@@ -4,7 +4,6 @@
 
 #include "occ_errors.hpp"
 #include "occ_poll_handler.hpp"
-#include "occ_status.hpp"
 #include "utils.hpp"
 
 #include <chrono>
@@ -38,7 +37,6 @@ class OccPollAppHandler : public OccPollHandler
     OccPollAppHandler(const OccPollAppHandler&) = delete;
     OccPollAppHandler& operator=(const OccPollAppHandler&) = delete;
     OccPollAppHandler(OccPollAppHandler&&) = default;
-    OccPollAppHandler& operator=(OccPollAppHandler&&) = default;
 
     OccPollAppHandler(Status& status, unsigned int instance);
 

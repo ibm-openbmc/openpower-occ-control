@@ -31,7 +31,6 @@ class OccPollKernelHandler : public OccPollHandler
     OccPollKernelHandler(const OccPollKernelHandler&) = delete;
     OccPollKernelHandler& operator=(const OccPollKernelHandler&) = delete;
     OccPollKernelHandler(OccPollKernelHandler&&) = default;
-    OccPollKernelHandler& operator=(OccPollKernelHandler&&) = default;
 
     OccPollKernelHandler(Status& status, unsigned int instance);
 
