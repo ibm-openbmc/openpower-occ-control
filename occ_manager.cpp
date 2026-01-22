@@ -2,11 +2,11 @@
 
 #include "occ_manager.hpp"
 
-#include "i2c_occ.hpp"
 #include "occ_dbus.hpp"
 #include "occ_errors.hpp"
 #include "utils.hpp"
 
+#include <nlohmann/json.hpp>
 #include <phosphor-logging/elog-errors.hpp>
 #include <phosphor-logging/lg2.hpp>
 #include <xyz/openbmc_project/Common/error.hpp>
@@ -22,43 +22,15 @@ namespace open_power
 namespace occ
 {
 
-constexpr uint32_t fruTypeNotAvailable = 0xFF;
-constexpr auto fruTypeSuffix = "fru_type";
-constexpr auto faultSuffix = "fault";
-constexpr auto inputSuffix = "input";
-constexpr auto maxSuffix = "max";
-
 const auto HOST_ON_FILE = "/run/openbmc/host@0-on";
+const std::string Manager::dumpFile = "/tmp/occ_control_dump.json";
 
 using namespace phosphor::logging;
 using namespace std::literals::chrono_literals;
-
-template <typename T>
-T readFile(const std::string& path)
-{
-    std::ifstream ifs;
-    ifs.exceptions(std::ifstream::failbit | std::ifstream::badbit |
-                   std::ifstream::eofbit);
-    T data;
-
-    try
-    {
-        ifs.open(path);
-        ifs >> data;
-        ifs.close();
-    }
-    catch (const std::exception& e)
-    {
-        auto err = errno;
-        throw std::system_error(err, std::generic_category());
-    }
-
-    return data;
-}
+using json = nlohmann::json;
 
 void Manager::createPldmHandle()
 {
-#ifdef PLDM
     pldmHandle = std::make_unique<pldm::Interface>(
         std::bind(std::mem_fn(&Manager::updateOCCActive), this,
                   std::placeholders::_1, std::placeholders::_2),
@@ -66,8 +38,7 @@ void Manager::createPldmHandle()
                   std::placeholders::_1, std::placeholders::_2),
         std::bind(std::mem_fn(&Manager::updateOccSafeMode), this,
                   std::placeholders::_1),
-        event);
-#endif
+        std::bind(std::mem_fn(&Manager::hostPoweredOff), this), event);
 }
 
 // findAndCreateObjects():
@@ -80,19 +51,11 @@ void Manager::createPldmHandle()
 // - restart discoverTimer if all data is not available yet
 void Manager::findAndCreateObjects()
 {
-#ifndef POWER10
-    for (auto id = 0; id < MAX_CPUS; ++id)
-    {
-        // Create one occ per cpu
-        auto occ = std::string(OCC_NAME) + std::to_string(id);
-        createObjects(occ);
-    }
-#else
     if (!pmode)
     {
         // Create the power mode object
         pmode = std::make_unique<powermode::PowerMode>(
-            *this, powermode::PMODE_PATH, powermode::PIPS_PATH, event);
+            powermode::PMODE_PATH, powermode::PIPS_PATH, event);
     }
 
     if (!fs::exists(HOST_ON_FILE))
@@ -164,7 +127,7 @@ void Manager::findAndCreateObjects()
                     tracedHostWait = true;
                 }
                 discoverTimer->restartOnce(30s);
-#ifdef PLDM
+
                 if (throttlePldmTraceTimer->isEnabled())
                 {
                     // Host is no longer running, disable throttle timer and
@@ -173,7 +136,6 @@ void Manager::findAndCreateObjects()
                     throttlePldmTraceTimer->setEnabled(false);
                     pldmHandle->setTraceThrottle(false);
                 }
-#endif
             }
         }
     }
@@ -184,10 +146,8 @@ void Manager::findAndCreateObjects()
             "FILE", HOST_ON_FILE);
         discoverTimer->restartOnce(10s);
     }
-#endif
 }
 
-#ifdef POWER10
 // Check if all occActive sensors are available
 void Manager::checkAllActiveSensors()
 {
@@ -229,22 +189,18 @@ void Manager::checkAllActiveSensors()
                             "checkAllActiveSensors(): Waiting on OCC{INST} Active sensor",
                             "INST", instance);
                         tracedSensorWait = true;
-#ifdef PLDM
                         // Make sure PLDM traces are not throttled
                         pldmHandle->setTraceThrottle(false);
                         // Start timer to throttle PLDM traces when timer
                         // expires
                         onPldmTimeoutCreatePel = false;
                         throttlePldmTraceTimer->restartOnce(5min);
-#endif
                     }
-#ifdef PLDM
                     // Ignore active sensor check if the OCCs are being reset
                     if (!resetInProgress)
                     {
                         pldmHandle->checkActiveSensor(obj->getOccInstanceID());
                     }
-#endif
                     break;
                 }
             }
@@ -256,7 +212,6 @@ void Manager::checkAllActiveSensors()
         {
             waitingForHost = true;
             lg2::info("checkAllActiveSensors(): Waiting for host to start");
-#ifdef PLDM
             if (throttlePldmTraceTimer->isEnabled())
             {
                 // Host is no longer running, disable throttle timer and
@@ -265,7 +220,6 @@ void Manager::checkAllActiveSensors()
                 throttlePldmTraceTimer->setEnabled(false);
                 pldmHandle->setTraceThrottle(false);
             }
-#endif
         }
     }
 
@@ -276,14 +230,12 @@ void Manager::checkAllActiveSensors()
         {
             discoverTimer->setEnabled(false);
         }
-#ifdef PLDM
         if (throttlePldmTraceTimer->isEnabled())
         {
             // Disable throttle timer and make sure traces are not throttled
             throttlePldmTraceTimer->setEnabled(false);
             pldmHandle->setTraceThrottle(false);
         }
-#endif
         if (waitingForAllOccActiveSensors)
         {
             lg2::info(
@@ -319,7 +271,6 @@ void Manager::checkAllActiveSensors()
         discoverTimer->restartOnce(10s);
     }
 }
-#endif
 
 std::vector<int> Manager::findOCCsInDev()
 {
@@ -346,8 +297,8 @@ int Manager::cpuCreated(sdbusplus::message_t& msg)
 {
     namespace fs = std::filesystem;
 
-    sdbusplus::message::object_path o;
-    msg.read(o);
+    auto o = msg.unpack<sdbusplus::message::object_path>();
+
     fs::path cpuPath(std::string(std::move(o)));
 
     auto name = cpuPath.filename().string();
@@ -364,20 +315,13 @@ void Manager::createObjects(const std::string& occ)
     auto path = fs::path(OCC_CONTROL_ROOT) / occ;
 
     statusObjects.emplace_back(std::make_unique<Status>(
-        event, path.c_str(), *this,
-#ifdef POWER10
-        pmode,
-#endif
+        event, path.c_str(), *this, pmode,
         std::bind(std::mem_fn(&Manager::statusCallBack), this,
-                  std::placeholders::_1, std::placeholders::_2)
-#ifdef PLDM
-            ,
+                  std::placeholders::_1, std::placeholders::_2),
         // Callback will set flag indicating reset needs to be done
         // instead of immediately issuing a reset via PLDM.
         std::bind(std::mem_fn(&Manager::resetOccRequest), this,
-                  std::placeholders::_1)
-#endif
-            ));
+                  std::placeholders::_1)));
 
     // Create the power cap monitor object
     if (!pcap)
@@ -392,19 +336,12 @@ void Manager::createObjects(const std::string& occ)
                   statusObjects.back()->getOccInstanceID());
         _pollTimer->setEnabled(false);
 
-#ifdef POWER10
         // Set the master OCC on the PowerMode object
         pmode->setMasterOcc(path);
-#endif
     }
 
-    passThroughObjects.emplace_back(std::make_unique<PassThrough>(
-        path.c_str()
-#ifdef POWER10
-            ,
-        pmode
-#endif
-        ));
+    passThroughObjects.emplace_back(
+        std::make_unique<PassThrough>(path.c_str(), pmode));
 }
 
 // If a reset is not already outstanding, set a flag to indicate that a reset is
@@ -437,9 +374,17 @@ void Manager::initiateOccRequest(instanceID instance)
         lg2::error(
             "initiateOccRequest: Initiating PM Complex reset due to OCC{INST}",
             "INST", instance);
-#ifdef PLDM
+
+        // Make sure ALL OCC comm stops to all OCCs before the reset
+        for (auto& obj : statusObjects)
+        {
+            if (obj->occActive())
+            {
+                obj->occActive(false);
+            }
+        }
+
         pldmHandle->resetOCC(instance);
-#endif
         resetRequired = false;
     }
     else
@@ -465,17 +410,14 @@ void Manager::statusCallBack(instanceID instance, bool status)
         // OCC went active
         ++activeCount;
 
-#ifdef POWER10
         if (activeCount == 1)
         {
             // First OCC went active (allow some time for all OCCs to go active)
             waitForAllOccsTimer->restartOnce(60s);
         }
-#endif
 
         if (activeCount == statusObjects.size())
         {
-#ifdef POWER10
             // All OCCs are now running
             if (waitForAllOccsTimer->isEnabled())
             {
@@ -501,15 +443,22 @@ void Manager::statusCallBack(instanceID instance, bool status)
                 // Verify master OCC and start presence monitor
                 validateOccMaster();
             }
-#else
-            // Verify master OCC and start presence monitor
-            validateOccMaster();
-#endif
         }
 
-        // Start poll timer if not already started
+        // Start poll timer if not already started (since at least one OCC is
+        // running)
         if (!_pollTimer->isEnabled())
         {
+            // An OCC just went active, PM Complex is just coming online so
+            // clear any outstanding reset requests
+            if (resetRequired)
+            {
+                resetRequired = false;
+                lg2::error(
+                    "statusCallBack: clearing resetRequired (since OCC{INST} went active, resetInProgress={RIP})",
+                    "INST", instance, "RIP", resetInProgress);
+            }
+
             lg2::info("Manager: OCCs will be polled every {TIME} seconds",
                       "TIME", pollInterval);
 
@@ -526,7 +475,7 @@ void Manager::statusCallBack(instanceID instance, bool status)
         }
         else
         {
-            lg2::info("OCC{INST} disabled, but currently no active OCCs",
+            lg2::info("OCC{INST} disabled, and no other OCCs are active",
                       "INST", instance);
         }
 
@@ -553,13 +502,11 @@ void Manager::statusCallBack(instanceID instance, bool status)
                 _pollTimer->setEnabled(false);
             }
 
-#ifdef POWER10
             // stop wait timer
             if (waitForAllOccsTimer->isEnabled())
             {
                 waitForAllOccsTimer->setEnabled(false);
             }
-#endif
         }
         else if (resetInProgress)
         {
@@ -567,13 +514,17 @@ void Manager::statusCallBack(instanceID instance, bool status)
                 "statusCallBack: Skipping clear of resetInProgress (activeCount={COUNT}, OCC{INST}, status={STATUS})",
                 "COUNT", activeCount, "INST", instance, "STATUS", status);
         }
-#ifdef READ_OCC_SENSORS
         // Clear OCC sensors
-        setSensorValueToNaN(instance);
-#endif
+        for (auto& obj : statusObjects)
+        {
+            if (instance == obj->getOccInstanceID())
+            {
+                obj->setSensorValueToNaN();
+                break;
+            }
+        }
     }
 
-#ifdef POWER10
     if (waitingForAllOccActiveSensors)
     {
         if (utils::isHostRunning())
@@ -581,37 +532,8 @@ void Manager::statusCallBack(instanceID instance, bool status)
             checkAllActiveSensors();
         }
     }
-#endif
 }
 
-#ifdef I2C_OCC
-void Manager::initStatusObjects()
-{
-    // Make sure we have a valid path string
-    static_assert(sizeof(DEV_PATH) != 0);
-
-    auto deviceNames = i2c_occ::getOccHwmonDevices(DEV_PATH);
-    for (auto& name : deviceNames)
-    {
-        i2c_occ::i2cToDbus(name);
-        name = std::string(OCC_NAME) + '_' + name;
-        auto path = fs::path(OCC_CONTROL_ROOT) / name;
-        statusObjects.emplace_back(
-            std::make_unique<Status>(event, path.c_str(), *this));
-    }
-    // The first device is master occ
-    pcap = std::make_unique<open_power::occ::powercap::PowerCap>(
-        *statusObjects.front());
-#ifdef POWER10
-    pmode = std::make_unique<powermode::PowerMode>(*this, powermode::PMODE_PATH,
-                                                   powermode::PIPS_PATH);
-    // Set the master OCC on the PowerMode object
-    pmode->setMasterOcc(path);
-#endif
-}
-#endif
-
-#ifdef PLDM
 void Manager::sbeTimeout(unsigned int instance)
 {
     auto obj = std::find_if(statusObjects.begin(), statusObjects.end(),
@@ -657,9 +579,7 @@ bool Manager::updateOCCActive(instanceID instance, bool status)
                     "updateOCCActive: Waiting for Host and all OCC Active Sensors");
                 waitingForAllOccActiveSensors = true;
             }
-#ifdef POWER10
             discoverTimer->restartOnce(30s);
-#endif
             return false;
         }
         else
@@ -706,9 +626,7 @@ bool Manager::updateOCCActive(instanceID instance, bool status)
 // Called upon pldm event To set powermode Safe Mode State for system.
 void Manager::updateOccSafeMode(bool safeMode)
 {
-#ifdef POWER10
     pmode->updateDbusSafeMode(safeMode);
-#endif
     // Update the processor throttle status on dbus
     for (auto& obj : statusObjects)
     {
@@ -878,7 +796,6 @@ struct pdbg_target* Manager::getPdbgTarget(unsigned int instance)
     return nullptr;
 }
 #endif
-#endif
 
 void Manager::pollerTimerExpired()
 {
@@ -888,7 +805,6 @@ void Manager::pollerTimerExpired()
         return;
     }
 
-#ifdef POWER10
     if (resetRequired)
     {
         lg2::error("pollerTimerExpired() - Initiating PM Complex reset");
@@ -902,27 +818,17 @@ void Manager::pollerTimerExpired()
         }
         return;
     }
-#endif
-
     for (auto& obj : statusObjects)
     {
         if (!obj->occActive())
         {
             // OCC is not running yet
-#ifdef READ_OCC_SENSORS
-            auto id = obj->getOccInstanceID();
-            setSensorValueToNaN(id);
-#endif
+            obj->setSensorValueToNaN();
             continue;
         }
 
-        // Read sysfs to force kernel to poll OCC
-        obj->readOccState();
-
-#ifdef READ_OCC_SENSORS
-        // Read occ sensor values
-        getSensorValues(obj);
-#endif
+        // get OCC Poll Response and handle actions needed.
+        obj->PollHandler();
     }
 
     if (activeCount > 0)
@@ -937,532 +843,6 @@ void Manager::pollerTimerExpired()
             "Manager::pollerTimerExpired: poll timer will not be restarted");
     }
 }
-
-#ifdef READ_OCC_SENSORS
-void Manager::readTempSensors(const fs::path& path, uint32_t occInstance)
-{
-    // There may be more than one sensor with the same FRU type
-    // and label so make two passes: the first to read the temps
-    // from sysfs, and the second to put them on D-Bus after
-    // resolving any conflicts.
-    std::map<std::string, double> sensorData;
-
-    std::regex expr{"temp\\d+_label$"}; // Example: temp5_label
-    for (auto& file : fs::directory_iterator(path))
-    {
-        if (!std::regex_search(file.path().string(), expr))
-        {
-            continue;
-        }
-
-        uint32_t labelValue{0};
-
-        try
-        {
-            labelValue = readFile<uint32_t>(file.path());
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", file.path().string(), "ERROR", e.code().value());
-            continue;
-        }
-
-        const std::string& tempLabel = "label";
-        const std::string filePathString = file.path().string().substr(
-            0, file.path().string().length() - tempLabel.length());
-
-        uint32_t fruTypeValue{0};
-        try
-        {
-            fruTypeValue = readFile<uint32_t>(filePathString + fruTypeSuffix);
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", filePathString + fruTypeSuffix, "ERROR",
-                e.code().value());
-            continue;
-        }
-
-        std::string sensorPath =
-            OCC_SENSORS_ROOT + std::string("/temperature/");
-
-        std::string dvfsTempPath;
-
-        if (fruTypeValue == VRMVdd)
-        {
-            sensorPath.append(
-                "vrm_vdd" + std::to_string(occInstance) + "_temp");
-        }
-        else if (fruTypeValue == processorIoRing)
-        {
-            sensorPath.append(
-                "proc" + std::to_string(occInstance) + "_ioring_temp");
-            dvfsTempPath = std::string{OCC_SENSORS_ROOT} + "/temperature/proc" +
-                           std::to_string(occInstance) + "_ioring_dvfs_temp";
-        }
-        else
-        {
-            uint16_t type = (labelValue & 0xFF000000) >> 24;
-            uint16_t instanceID = labelValue & 0x0000FFFF;
-
-            if (type == OCC_DIMM_TEMP_SENSOR_TYPE)
-            {
-                if (fruTypeValue == fruTypeNotAvailable)
-                {
-                    // Not all DIMM related temps are available to read
-                    // (no _input file in this case)
-                    continue;
-                }
-                auto iter = dimmTempSensorName.find(fruTypeValue);
-                if (iter == dimmTempSensorName.end())
-                {
-                    lg2::error(
-                        "readTempSensors: Fru type error! fruTypeValue = {FRU}) ",
-                        "FRU", fruTypeValue);
-                    continue;
-                }
-
-                sensorPath.append(
-                    "dimm" + std::to_string(instanceID) + iter->second);
-
-                dvfsTempPath = std::string{OCC_SENSORS_ROOT} + "/temperature/" +
-                               dimmDVFSSensorName.at(fruTypeValue);
-            }
-            else if (type == OCC_CPU_TEMP_SENSOR_TYPE)
-            {
-                if (fruTypeValue == processorCore)
-                {
-                    // The OCC reports small core temps, of which there are
-                    // two per big core.  All current P10 systems are in big
-                    // core mode, so use a big core name.
-                    uint16_t coreNum = instanceID / 2;
-                    uint16_t tempNum = instanceID % 2;
-                    sensorPath.append("proc" + std::to_string(occInstance) +
-                                      "_core" + std::to_string(coreNum) + "_" +
-                                      std::to_string(tempNum) + "_temp");
-
-                    dvfsTempPath =
-                        std::string{OCC_SENSORS_ROOT} + "/temperature/proc" +
-                        std::to_string(occInstance) + "_core_dvfs_temp";
-                }
-                else
-                {
-                    continue;
-                }
-            }
-            else
-            {
-                continue;
-            }
-        }
-
-        // The dvfs temp file only needs to be read once per chip per type.
-        if (!dvfsTempPath.empty() &&
-            !dbus::OccDBusSensors::getOccDBus().hasDvfsTemp(dvfsTempPath))
-        {
-            try
-            {
-                auto dvfsValue = readFile<double>(filePathString + maxSuffix);
-
-                dbus::OccDBusSensors::getOccDBus().setDvfsTemp(
-                    dvfsTempPath, dvfsValue * std::pow(10, -3));
-            }
-            catch (const std::system_error& e)
-            {
-                lg2::debug(
-                    "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                    "PATH", filePathString + maxSuffix, "ERROR",
-                    e.code().value());
-            }
-        }
-
-        uint32_t faultValue{0};
-        try
-        {
-            faultValue = readFile<uint32_t>(filePathString + faultSuffix);
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", filePathString + faultSuffix, "ERROR",
-                e.code().value());
-            continue;
-        }
-
-        double tempValue{0};
-        // NOTE: if OCC sends back 0xFF, kernal sets this fault value to 1.
-        if (faultValue != 0)
-        {
-            tempValue = std::numeric_limits<double>::quiet_NaN();
-        }
-        else
-        {
-            // Read the temperature
-            try
-            {
-                tempValue = readFile<double>(filePathString + inputSuffix);
-            }
-            catch (const std::system_error& e)
-            {
-                lg2::debug(
-                    "readTempSensors: Failed reading {PATH}, errno = {ERROR}",
-                    "PATH", filePathString + inputSuffix, "ERROR",
-                    e.code().value());
-
-                // if errno == EAGAIN(Resource temporarily unavailable) then set
-                // temp to 0, to avoid using old temp, and affecting FAN
-                // Control.
-                if (e.code().value() == EAGAIN)
-                {
-                    tempValue = 0;
-                }
-                // else the errno would be something like
-                //     EBADF(Bad file descriptor)
-                // or ENOENT(No such file or directory)
-                else
-                {
-                    continue;
-                }
-            }
-        }
-
-        // If this object path already has a value, only overwite
-        // it if the previous one was an NaN or a smaller value.
-        auto existing = sensorData.find(sensorPath);
-        if (existing != sensorData.end())
-        {
-            // Multiple sensors found for this FRU type
-            if ((std::isnan(existing->second) && (tempValue == 0)) ||
-                ((existing->second == 0) && std::isnan(tempValue)))
-            {
-                // One of the redundant sensors has failed (0xFF/nan), and the
-                // other sensor has no reading (0), so set the FRU to NaN to
-                // force fan increase
-                tempValue = std::numeric_limits<double>::quiet_NaN();
-                existing->second = tempValue;
-            }
-            if (std::isnan(existing->second) || (tempValue > existing->second))
-            {
-                existing->second = tempValue;
-            }
-        }
-        else
-        {
-            // First sensor for this FRU type
-            sensorData[sensorPath] = tempValue;
-        }
-    }
-
-    // Now publish the values on D-Bus.
-    for (const auto& [objectPath, value] : sensorData)
-    {
-        dbus::OccDBusSensors::getOccDBus().setValue(objectPath,
-                                                    value * std::pow(10, -3));
-
-        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-            objectPath, !std::isnan(value));
-
-        if (existingSensors.find(objectPath) == existingSensors.end())
-        {
-            dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
-                objectPath, {"all_sensors"});
-        }
-
-        existingSensors[objectPath] = occInstance;
-    }
-}
-
-std::optional<std::string> Manager::getPowerLabelFunctionID(
-    const std::string& value)
-{
-    // If the value is "system", then the FunctionID is "system".
-    if (value == "system")
-    {
-        return value;
-    }
-
-    // If the value is not "system", then the label value have 3 numbers, of
-    // which we only care about the middle one:
-    // <sensor id>_<function id>_<apss channel>
-    // eg: The value is "0_10_5" , then the FunctionID is "10".
-    if (value.find("_") == std::string::npos)
-    {
-        return std::nullopt;
-    }
-
-    auto powerLabelValue = value.substr((value.find("_") + 1));
-
-    if (powerLabelValue.find("_") == std::string::npos)
-    {
-        return std::nullopt;
-    }
-
-    return powerLabelValue.substr(0, powerLabelValue.find("_"));
-}
-
-void Manager::readPowerSensors(const fs::path& path, uint32_t id)
-{
-    std::regex expr{"power\\d+_label$"}; // Example: power5_label
-    for (auto& file : fs::directory_iterator(path))
-    {
-        if (!std::regex_search(file.path().string(), expr))
-        {
-            continue;
-        }
-
-        std::string labelValue;
-        try
-        {
-            labelValue = readFile<std::string>(file.path());
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readPowerSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", file.path().string(), "ERROR", e.code().value());
-            continue;
-        }
-
-        auto functionID = getPowerLabelFunctionID(labelValue);
-        if (functionID == std::nullopt)
-        {
-            continue;
-        }
-
-        const std::string& tempLabel = "label";
-        const std::string filePathString = file.path().string().substr(
-            0, file.path().string().length() - tempLabel.length());
-
-        std::string sensorPath = OCC_SENSORS_ROOT + std::string("/power/");
-
-        auto iter = powerSensorName.find(*functionID);
-        if (iter == powerSensorName.end())
-        {
-            continue;
-        }
-        sensorPath.append(iter->second);
-
-        double tempValue{0};
-
-        try
-        {
-            tempValue = readFile<double>(filePathString + inputSuffix);
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readPowerSensors: Failed reading {PATH}, errno = {ERROR}",
-                "PATH", filePathString + inputSuffix, "ERROR",
-                e.code().value());
-            continue;
-        }
-
-        dbus::OccDBusSensors::getOccDBus().setUnit(
-            sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-
-        dbus::OccDBusSensors::getOccDBus().setValue(
-            sensorPath, tempValue * std::pow(10, -3) * std::pow(10, -3));
-
-        dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-            sensorPath, true);
-
-        if (existingSensors.find(sensorPath) == existingSensors.end())
-        {
-            std::vector<std::string> fTypeList = {"all_sensors"};
-            if (iter->second == "total_power")
-            {
-                // Set sensor purpose as TotalPower
-                dbus::OccDBusSensors::getOccDBus().setPurpose(
-                    sensorPath,
-                    "xyz.openbmc_project.Sensor.Purpose.SensorPurpose.TotalPower");
-            }
-            dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
-                sensorPath, fTypeList);
-        }
-
-        existingSensors[sensorPath] = id;
-    }
-    return;
-}
-
-void Manager::readExtnSensors(const fs::path& path, uint32_t id)
-{
-    std::regex expr{"extn\\d+_label$"}; // Example: extn5_label
-    for (auto& file : fs::directory_iterator(path))
-    {
-        if (!std::regex_search(file.path().string(), expr))
-        {
-            continue;
-        }
-
-        // Read in Label value of the sensor from file.
-        std::string labelValue;
-        try
-        {
-            labelValue = readFile<std::string>(file.path());
-        }
-        catch (const std::system_error& e)
-        {
-            lg2::debug(
-                "readExtnSensors:label Failed reading {PATH}, errno = {ERROR}",
-                "PATH", file.path().string(), "ERROR", e.code().value());
-            continue;
-        }
-        const std::string& tempLabel = "label";
-        const std::string filePathString = file.path().string().substr(
-            0, file.path().string().length() - tempLabel.length());
-
-        std::string sensorPath = OCC_SENSORS_ROOT + std::string("/power/");
-
-        // Labels of EXTN sections from OCC interface Document
-        //     have different formats.
-        // 0x464d494e : FMIN            0x46444953 : FDIS
-        // 0x46424153 : FBAS            0x46555400 : FUT
-        // 0x464d4158 : FMAX            0x434c4950 : CLIP
-        // 0x4d4f4445 : MODE            0x574f4643 : WOFC
-        // 0x574f4649 : WOFI            0x5057524d : PWRM
-        // 0x50575250 : PWRP            0x45525248 : ERRH
-        // Label indicating byte 5 and 6 is the current (mem,proc) power in
-        //      Watts.
-        if ((labelValue == EXTN_LABEL_PWRM_MEMORY_POWER) ||
-            (labelValue == EXTN_LABEL_PWRP_PROCESSOR_POWER))
-        {
-            // Build the dbus String for this chiplet power asset.
-            if (labelValue == EXTN_LABEL_PWRP_PROCESSOR_POWER)
-            {
-                labelValue = "_power";
-            }
-            else // else EXTN_LABEL_PWRM_MEMORY_POWER
-            {
-                labelValue = "_mem_power";
-            }
-            sensorPath.append("chiplet" + std::to_string(id) + labelValue);
-
-            // Read in data value of the sensor from file.
-            // Read in as string due to different format of data in sensors.
-            std::string extnValue;
-            try
-            {
-                extnValue = readFile<std::string>(filePathString + inputSuffix);
-            }
-            catch (const std::system_error& e)
-            {
-                lg2::debug(
-                    "readExtnSensors:value Failed reading {PATH}, errno = {ERROR}",
-                    "PATH", filePathString + inputSuffix, "ERROR",
-                    e.code().value());
-                continue;
-            }
-
-            // For Power field, Convert last 4 bytes of hex string into number
-            //   value.
-            std::stringstream ssData;
-            ssData << std::hex << extnValue.substr(extnValue.length() - 4);
-            uint16_t MyHexNumber;
-            ssData >> MyHexNumber;
-
-            // Convert output/DC power to input/AC power in Watts (round up)
-            MyHexNumber =
-                std::round(((MyHexNumber / (PS_DERATING_FACTOR / 100.0))));
-
-            lg2::debug("OCC{ID}: FILE:{FILE} -- {ACWATTS} AC Watts", "ID", id,
-                       "FILE", filePathString + inputSuffix, "ACWATTS",
-                       MyHexNumber);
-
-            dbus::OccDBusSensors::getOccDBus().setUnit(
-                sensorPath, "xyz.openbmc_project.Sensor.Value.Unit.Watts");
-
-            dbus::OccDBusSensors::getOccDBus().setValue(sensorPath,
-                                                        MyHexNumber);
-
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-                sensorPath, true);
-
-            if (existingSensors.find(sensorPath) == existingSensors.end())
-            {
-                dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
-                    sensorPath, {"all_sensors"});
-            }
-
-        } // End Extended Power Sensors.
-        // else put in other label formats here to dbus.
-
-        existingSensors[sensorPath] = id;
-
-    } // End For loop on files for Extended Sensors.
-    return;
-}
-
-void Manager::setSensorValueToNaN(uint32_t id) const
-{
-    for (const auto& [sensorPath, occId] : existingSensors)
-    {
-        if (occId == id)
-        {
-            dbus::OccDBusSensors::getOccDBus().setValue(
-                sensorPath, std::numeric_limits<double>::quiet_NaN());
-
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-                sensorPath, true);
-        }
-    }
-    return;
-}
-
-void Manager::setSensorValueToNonFunctional(uint32_t id) const
-{
-    for (const auto& [sensorPath, occId] : existingSensors)
-    {
-        if (occId == id)
-        {
-            dbus::OccDBusSensors::getOccDBus().setValue(
-                sensorPath, std::numeric_limits<double>::quiet_NaN());
-
-            dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
-                sensorPath, false);
-        }
-    }
-    return;
-}
-
-void Manager::getSensorValues(std::unique_ptr<Status>& occ)
-{
-    static bool tracedError[8] = {0};
-    const fs::path sensorPath = occ->getHwmonPath();
-    const uint32_t id = occ->getOccInstanceID();
-
-    if (fs::exists(sensorPath))
-    {
-        // Read temperature sensors
-        readTempSensors(sensorPath, id);
-        readExtnSensors(sensorPath, id);
-
-        if (occ->isMasterOcc())
-        {
-            // Read power sensors
-            readPowerSensors(sensorPath, id);
-        }
-        tracedError[id] = false;
-    }
-    else
-    {
-        if (!tracedError[id])
-        {
-            lg2::error(
-                "Manager::getSensorValues: OCC{INST} sensor path missing: {PATH}",
-                "INST", id, "PATH", sensorPath);
-            tracedError[id] = true;
-        }
-    }
-
-    return;
-}
-#endif
 
 // Read the altitude from DBus
 void Manager::readAltitude()
@@ -1558,7 +938,7 @@ void Manager::ambientCallback(sdbusplus::message_t& msg)
 
         lg2::debug("ambientCallback: Ambient: {TEMP}C, altitude: {ALT}m",
                    "TEMP", ambient, "ALT", altitude);
-#ifdef POWER10
+
         // Send ambient and altitude to all OCCs
         for (auto& obj : statusObjects)
         {
@@ -1567,7 +947,6 @@ void Manager::ambientCallback(sdbusplus::message_t& msg)
                 obj->sendAmbient(ambient, altitude);
             }
         }
-#endif // POWER10
     }
 }
 
@@ -1585,7 +964,6 @@ void Manager::getAmbientData(bool& ambientValid, uint8_t& ambientTemp,
     }
 }
 
-#ifdef POWER10
 // Called when waitForAllOccsTimer expires
 // After the first OCC goes active, this timer will be started (60 seconds)
 void Manager::occsNotAllRunning()
@@ -1622,7 +1000,6 @@ void Manager::occsNotAllRunning()
     }
 }
 
-#ifdef PLDM
 // Called when throttlePldmTraceTimer expires.
 // If this timer expires, that indicates there are no OCC active sensor PDRs
 // found which will trigger pldm traces to be throttled.
@@ -1699,8 +1076,6 @@ void Manager::createPldmSensorPEL()
                    e.what());
     }
 }
-#endif // PLDM
-#endif // POWER10
 
 // Verify single master OCC and start presence monitor
 void Manager::validateOccMaster()
@@ -1709,7 +1084,7 @@ void Manager::validateOccMaster()
     for (auto& obj : statusObjects)
     {
         auto instance = obj->getOccInstanceID();
-#ifdef POWER10
+
         if (!obj->occActive())
         {
             if (utils::isHostRunning())
@@ -1726,9 +1101,7 @@ void Manager::validateOccMaster()
                 else
                 {
                     // OCC does not appear to be active yet, check active sensor
-#ifdef PLDM
                     pldmHandle->checkActiveSensor(instance);
-#endif
                     if (obj->occActive())
                     {
                         lg2::info(
@@ -1745,7 +1118,6 @@ void Manager::validateOccMaster()
                 return;
             }
         }
-#endif // POWER10
 
         if (obj->isMasterOcc())
         {
@@ -1778,18 +1150,123 @@ void Manager::validateOccMaster()
     {
         lg2::info("validateOccMaster: OCC{INST} is master of {COUNT} OCCs",
                   "INST", masterInstance, "COUNT", activeCount);
-#ifdef POWER10
+
         pmode->updateDbusSafeMode(false);
-#endif
     }
 }
 
-void Manager::updatePcapBounds() const
+void Manager::updatePcapBounds(bool& parmsChanged, uint32_t& capSoftMin,
+                               uint32_t& capHardMin, uint32_t& capMax) const
 {
     if (pcap)
     {
-        pcap->updatePcapBounds();
+        pcap->updatePcapBounds(parmsChanged, capSoftMin, capHardMin, capMax);
     }
+}
+
+// Clean up any variables since the OCC is no longer running.
+// Called when pldm receives an event indicating host is powered off.
+void Manager::hostPoweredOff()
+{
+    if (resetRequired)
+    {
+        lg2::info("hostPoweredOff: Clearing resetRequired for OCC{INST}",
+                  "INST", resetInstance);
+        resetRequired = false;
+    }
+    if (resetInProgress)
+    {
+        lg2::info("hostPoweredOff: Clearing resetInProgress for OCC{INST}",
+                  "INST", resetInstance);
+        resetInProgress = false;
+    }
+    resetInstance = 255;
+}
+
+void Manager::collectDumpData(sdeventplus::source::Signal&,
+                              const struct signalfd_siginfo*)
+{
+    json data;
+    lg2::info("collectDumpData()");
+    data["objectCount"] = std::to_string(statusObjects.size()) + " OCC objects";
+    if (statusObjects.size() > 0)
+    {
+        try
+        {
+            for (auto& occ : statusObjects)
+            {
+                json occData;
+                auto instance = occ->getOccInstanceID();
+                std::string occName = "occ" + std::to_string(instance);
+
+                if (occ->occActive())
+                {
+                    // OCC General Info
+                    occData["occState"] = "ACTIVE";
+                    occData["occRole"] =
+                        occ->isMasterOcc() ? "MASTER" : "SECONDARY";
+                    occData["occHwmonPath"] =
+                        occ->getHwmonPath().generic_string();
+
+                    // OCC Poll Response
+                    std::vector<std::uint8_t> cmd = {0x00, 0x00, 0x01, 0x20};
+                    std::vector<std::uint8_t> rsp;
+                    std::vector<std::string> rspHex;
+                    rsp = passThroughObjects[instance]->send(cmd);
+                    if (rsp.size() > 5)
+                    {
+                        rsp.erase(rsp.begin(),
+                                  rsp.begin() + 5); // Strip rsp header
+                        rspHex = utils::hex_dump(rsp);
+                        occData["pollResponse"] = rspHex;
+                    }
+
+                    // Debug Data: WOF Dynamic Data
+                    cmd = {0x40, 0x00, 0x01, 0x01};
+                    rsp = passThroughObjects[instance]->send(cmd);
+                    if (rsp.size() > 5)
+                    {
+                        rsp.erase(rsp.begin(),
+                                  rsp.begin() + 5); // Strip rsp header
+                        rspHex = utils::hex_dump(rsp);
+                        occData["wofDataDynamic"] = rspHex;
+                    }
+
+                    // Debug Data: WOF Dynamic Data
+                    cmd = {0x40, 0x00, 0x01, 0x0A};
+                    rsp = passThroughObjects[instance]->send(cmd);
+                    if (rsp.size() > 5)
+                    {
+                        rsp.erase(rsp.begin(),
+                                  rsp.begin() + 5); // Strip rsp header
+                        rspHex = utils::hex_dump(rsp);
+                        occData["wofDataStatic"] = rspHex;
+                    }
+                }
+                else
+                {
+                    occData["occState"] = "NOT ACTIVE";
+                }
+
+                data[occName] = occData;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            lg2::error("Failed to collect OCC dump data: {ERR}", "ERR",
+                       e.what());
+        }
+    }
+
+    std::ofstream file{Manager::dumpFile};
+    if (!file)
+    {
+        lg2::error("Failed to open {FILE} for occ-control data", "FILE",
+                   Manager::dumpFile);
+        return;
+    }
+
+    file << std::setw(4) << data;
 }
 
 } // namespace occ

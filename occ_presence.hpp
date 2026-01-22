@@ -18,7 +18,7 @@ class Presence : public Error
     Presence(const Presence&) = delete;
     Presence& operator=(const Presence&) = delete;
     Presence(Presence&&) = default;
-    Presence& operator=(Presence&&) = default;
+    Presence& operator=(Presence&&) = delete;
 
     /** @brief Constructs the Presence object
      *

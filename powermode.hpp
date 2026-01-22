@@ -2,7 +2,6 @@
 
 #include "config.h"
 
-#ifdef POWER10
 #include "occ_command.hpp"
 
 #include <cereal/archives/json.hpp>
@@ -250,12 +249,11 @@ class PowerMode : public ModeInterface
      * If a change is detected, and the occ is active, then this object will
      * notify the OCC of the change.
      *
-     * @param[in] managerRef - manager object reference
      * @param[in] modePath - Power Mode dbus path
      * @param[in] ipsPath - Idle Power Saver dbus path
      */
-    explicit PowerMode(const Manager& managerRef, const char* modePath,
-                       const char* ipsPath, EventPtr& event);
+    explicit PowerMode(const char* modePath, const char* ipsPath,
+                       EventPtr& event);
 
     /** @brief Initialize the persistent data with default values
      *
@@ -349,9 +347,6 @@ class PowerMode : public ModeInterface
     }
 
   private:
-    /** @brief OCC manager object */
-    const Manager& manager;
-
     /** @brief Pass-through occ path on the bus */
     std::string path;
 
@@ -539,4 +534,3 @@ class PowerMode : public ModeInterface
 } // namespace occ
 
 } // namespace open_power
-#endif

@@ -82,7 +82,7 @@ class FFDC : public Error
     FFDC(const FFDC&) = delete;
     FFDC& operator=(const FFDC&) = delete;
     FFDC(FFDC&&) = default;
-    FFDC& operator=(FFDC&&) = default;
+    FFDC& operator=(FFDC&&) = delete;
 
     /** @brief Constructs the FFDC object
      *

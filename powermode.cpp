@@ -48,11 +48,10 @@ using NotAllowed = sdbusplus::xyz::openbmc_project::Common::Error::NotAllowed;
      (mode == SysPwrMode::EFF_FAVOR_PERF))
 
 // Constructor
-PowerMode::PowerMode(const Manager& managerRef, const char* modePath,
-                     const char* ipsPath, EventPtr& event) :
+PowerMode::PowerMode(const char* modePath, const char* ipsPath,
+                     EventPtr& event) :
     ModeInterface(utils::getBus(), modePath,
                   ModeInterface::action::emit_no_signals),
-    manager(managerRef),
     ipsMatch(utils::getBus(),
              sdbusplus::bus::match::rules::propertiesChanged(PIPS_PATH,
                                                              PIPS_INTERFACE),
@@ -309,8 +308,8 @@ bool isPowerVM()
     method.append(HYPE_INTERFACE, HYPE_PROP);
     auto reply = bus.call(method);
 
-    std::variant<std::string> hyperEntryValue;
-    reply.read(hyperEntryValue);
+    auto hyperEntryValue = reply.unpack<std::variant<std::string>>();
+
     auto propVal = std::get<std::string>(hyperEntryValue);
     if (Hyper::Target::convertHypervisorFromString(propVal) ==
         Hyper::Target::Hypervisor::PowerVM)
@@ -453,6 +452,14 @@ CmdStatus PowerMode::sendModeChange()
             if (!ipsObject)
             {
                 createIpsObject();
+            }
+            else
+            {
+                if (!watching)
+                {
+                    // Starts watching for IPS state changes.
+                    addIpsWatch(true);
+                }
             }
         }
 
@@ -907,8 +914,8 @@ bool PowerMode::getDefaultMode(SysPwrMode& defaultMode)
         method.append(PMODE_DEFAULT_INTERFACE, "PowerMode");
         auto reply = bus.call(method);
 
-        std::variant<std::string> stateEntryValue;
-        reply.read(stateEntryValue);
+        auto stateEntryValue = reply.unpack<std::variant<std::string>>();
+
         auto propVal = std::get<std::string>(stateEntryValue);
 
         const std::string fullModeString =
@@ -1366,6 +1373,7 @@ bool PowerMode::getSupportedModes()
     using PMode = sdbusplus::xyz::openbmc_project::Control::Power::server::Mode;
     std::set<PMode::PowerMode> modesToAllow;
     auto custList = powerModeProperties.find("CustomerModes");
+    const std::string POWERMODE_STRING = ".PowerMode.";
     if (custList != powerModeProperties.end())
     {
         auto modeList = std::get<std::vector<std::string>>(custList->second);
@@ -1373,7 +1381,7 @@ bool PowerMode::getSupportedModes()
         {
             // Ensure mode is valid
             const std::string fullModeString =
-                PMODE_INTERFACE + ".PowerMode."s + mode;
+                PMODE_INTERFACE + POWERMODE_STRING + mode;
             lg2::info("getSupportedModes(): {MODE}", "MODE", mode);
             SysPwrMode modeValue =
                 powermode::convertStringToMode(fullModeString);
@@ -1415,7 +1423,7 @@ bool PowerMode::getSupportedModes()
         {
             // Ensure mode is valid
             const std::string fullModeString =
-                PMODE_INTERFACE + ".PowerMode."s + mode;
+                PMODE_INTERFACE + POWERMODE_STRING + mode;
             SysPwrMode modeValue =
                 powermode::convertStringToMode(fullModeString);
             if (VALID_POWER_MODE_SETTING(modeValue) ||

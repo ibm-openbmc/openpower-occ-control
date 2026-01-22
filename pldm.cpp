@@ -272,6 +272,8 @@ void Interface::hostStateEvent(sdbusplus::message_t& msg)
         if (propVal == "xyz.openbmc_project.State.Host.HostState.Off")
         {
             clearData();
+            // Notify manager that host is now off
+            poweredOffCallBack();
         }
     }
 }
@@ -307,6 +309,12 @@ void Interface::clearData()
         lg2::debug("clearData: Clearing sbeInstanceToEffecter ({NUM} entries)",
                    "NUM", sbeInstanceToEffecter.size());
         sbeInstanceToEffecter.clear();
+    }
+    if (!outstandingHResets.empty())
+    {
+        lg2::info("clearData: clearing {NUM} outstanding HRESET requests",
+                  "NUM", outstandingHResets.size());
+        outstandingHResets.clear();
     }
 }
 
@@ -389,6 +397,14 @@ std::vector<uint8_t> Interface::prepareSetEffecterReq(
     uint8_t stateIdPos, uint8_t stateSetValue)
 {
     if (!getPldmInstanceId())
+    {
+        return std::vector<uint8_t>();
+    }
+
+    // Required for clang-tidy bugprone-unchecked-optional-access check.
+    // Ensures pldmInstanceID is engaged before dereferencing its value.
+
+    if (!pldmInstanceID.has_value())
     {
         return std::vector<uint8_t>();
     }
@@ -674,6 +690,9 @@ void Interface::sendPldm(const std::vector<uint8_t>& request,
         lg2::error("sendPldm: No PLDM Instance ID found!");
         return;
     }
+    // Extract local copy of PLDM instance ID to satisfy clang-tidy bugprone
+    // check.
+    const auto instanceId = *pldmInstanceID;
 
     auto rc = pldmOpen();
     if (rc)
@@ -705,8 +724,8 @@ void Interface::sendPldm(const std::vector<uint8_t>& request,
         {
             lg2::info("sendPldm: calling pldm_transport_send_msg(OCC{INST}, "
                       "instance:{ID}, {LEN} bytes, timeout {TO})",
-                      "INST", instance, "ID", pldmInstanceID.value(), "LEN",
-                      request.size(), "TO", timeout.count());
+                      "INST", instance, "ID", instanceId, "LEN", request.size(),
+                      "TO", timeout.count());
         }
         pldmResponseReceived = false;
         pldmResponseTimeout = false;
@@ -725,6 +744,10 @@ void Interface::sendPldm(const std::vector<uint8_t>& request,
             pldmClose();
             return;
         }
+
+        // Save header to confirm response matches
+        auto requestPtr = reinterpret_cast<const pldm_msg*>(&request[0]);
+        memcpy(&_requestHeader, requestPtr, sizeof(pldm_msg_hdr));
 
         // start timer waiting for the response
         pldmRspTimer.restartOnce(timeout);
@@ -825,13 +848,13 @@ void Interface::pldmClose()
 
 #if defined(PLDM_TRANSPORT_WITH_MCTP_DEMUX)
     pldm_transport_mctp_demux_destroy(impl.mctpDemux);
-    impl.mctpDemux = NULL;
+    impl.mctpDemux = nullptr;
 #elif defined(PLDM_TRANSPORT_WITH_AF_MCTP)
     pldm_transport_af_mctp_destroy(impl.afMctp);
     impl.afMctp = NULL;
 #endif
     pldmFd = -1;
-    pldmTransport = NULL;
+    pldmTransport = nullptr;
     eventSource.reset();
 }
 
@@ -866,7 +889,7 @@ int Interface::pldmRspCallback(sd_event_source* /*es*/,
     auto rc = pldm_transport_recv_msg(pldmIface->pldmTransport, &pldmTID,
                                       (void**)&responseMsg, &responseMsgSize);
     int lastErrno = errno;
-    if (rc)
+    if (rc != PLDM_REQUESTER_SUCCESS)
     {
         if (!throttleTraces)
         {
@@ -878,6 +901,15 @@ int Interface::pldmRspCallback(sd_event_source* /*es*/,
                 "ERR", lastErrno, "STR", strerror(lastErrno));
         }
         return -1;
+    }
+
+    // Verify the response header matches our request
+    struct pldm_msg_hdr* hdr = (struct pldm_msg_hdr*)responseMsg;
+    if ((pldmTID != mctpEid) ||
+        !pldm_msg_hdr_correlate_response(&pldmIface->_requestHeader, hdr))
+    {
+        // We got a response to someone else's message. Ignore it.
+        return 0;
     }
 
     // We got the response for the PLDM request msg that was sent
@@ -1005,7 +1037,7 @@ int Interface::pldmResetCallback(sd_event_source* /*es*/,
     auto rc = pldm_transport_recv_msg(pldmIface->pldmTransport, &pldmTID,
                                       (void**)&responseMsg, &responseMsgSize);
     int lastErrno = errno;
-    if (rc)
+    if (rc != PLDM_REQUESTER_SUCCESS)
     {
         if (!throttleTraces)
         {
@@ -1017,6 +1049,15 @@ int Interface::pldmResetCallback(sd_event_source* /*es*/,
                 "ERR", lastErrno, "STR", strerror(lastErrno));
         }
         return -1;
+    }
+
+    // Verify the response header matches our request
+    struct pldm_msg_hdr* hdr = (struct pldm_msg_hdr*)responseMsg;
+    if ((pldmTID != mctpEid) ||
+        !pldm_msg_hdr_correlate_response(&pldmIface->_requestHeader, hdr))
+    {
+        // We got a response to someone else's message. Ignore it.
+        return 0;
     }
 
     // We got the response for the PLDM request msg that was sent
@@ -1075,6 +1116,12 @@ std::vector<uint8_t> Interface::encodeGetStateSensorRequest(uint8_t instance,
     if (!getPldmInstanceId())
     {
         lg2::error("encodeGetStateSensorRequest: failed to getPldmInstanceId");
+        return std::vector<uint8_t>();
+    }
+    // Required for clang-tidy bugprone-unchecked-optional-access check.
+    // Ensures pldmInstanceID is engaged before dereferencing its value.
+    if (!pldmInstanceID.has_value())
+    {
         return std::vector<uint8_t>();
     }
 

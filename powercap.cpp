@@ -101,69 +101,9 @@ void OccPersistCapData::load()
     }
 }
 
-void PowerCap::updatePcapBounds()
+void PowerCap::updatePcapBounds(bool& parmsChanged, uint32_t& capSoftMin,
+                                uint32_t& capHardMin, uint32_t& capMax)
 {
-    // Build the hwmon string to write the power cap bounds
-    fs::path minName = getPcapFilename(std::regex{"power\\d+_cap_min$"});
-    fs::path softMinName =
-        getPcapFilename(std::regex{"power\\d+_cap_min_soft$"});
-    fs::path maxName = getPcapFilename(std::regex{"power\\d+_cap_max$"});
-
-    // Read the current limits from persistent data
-    uint32_t capSoftMin, capHardMin, capMax;
-    persistedData.getCapLimits(capSoftMin, capHardMin, capMax);
-
-    // Read the power cap bounds from sysfs files (from OCC)
-    uint64_t cap;
-    bool parmsChanged = false;
-    std::ifstream softMinFile(softMinName, std::ios::in);
-    if (softMinFile)
-    {
-        softMinFile >> cap;
-        softMinFile.close();
-        // Convert to input/AC Power in Watts (round up)
-        capSoftMin = ((cap / (PS_DERATING_FACTOR / 100.0) / 1000000) + 0.9);
-        parmsChanged = true;
-    }
-    else
-    {
-        lg2::error(
-            "updatePcapBounds: unable to find pcap_min_soft file: {FILE} (errno={ERR})",
-            "FILE", pcapBasePathname, "ERR", errno);
-    }
-
-    std::ifstream minFile(minName, std::ios::in);
-    if (minFile)
-    {
-        minFile >> cap;
-        minFile.close();
-        // Convert to input/AC Power in Watts (round up)
-        capHardMin = ((cap / (PS_DERATING_FACTOR / 100.0) / 1000000) + 0.9);
-        parmsChanged = true;
-    }
-    else
-    {
-        lg2::error(
-            "updatePcapBounds: unable to find cap_min file: {FILE} (errno={ERR})",
-            "FILE", pcapBasePathname, "ERR", errno);
-    }
-
-    std::ifstream maxFile(maxName, std::ios::in);
-    if (maxFile)
-    {
-        maxFile >> cap;
-        maxFile.close();
-        // Convert to input/AC Power in Watts (truncate remainder)
-        capMax = cap / (PS_DERATING_FACTOR / 100.0) / 1000000;
-        parmsChanged = true;
-    }
-    else
-    {
-        lg2::error(
-            "updatePcapBounds: unable to find cap_max file: {FILE} (errno={ERR})",
-            "FILE", pcapBasePathname, "ERR", errno);
-    }
-
     if (parmsChanged)
     {
         // Save the power cap bounds to dbus
@@ -171,6 +111,7 @@ void PowerCap::updatePcapBounds()
         persistedData.updateCapLimits(capSoftMin, capHardMin, capMax);
     }
 
+    //
     // Validate user power cap (if enabled) is within the bounds
     const uint32_t dbusUserCap = getPcap();
     const bool pcapEnabled = getPcapEnabled();
@@ -420,6 +361,7 @@ void PowerCap::pcapChanged(sdbusplus::message_t& msg)
     // Validate the cap is within supported range
     uint32_t capSoftMin, capHardMin, capMax;
     persistedData.getCapLimits(capSoftMin, capHardMin, capMax);
+
     if (((pcap > 0) && (pcap < capSoftMin)) || ((pcap == 0) && (pcapEnabled)))
     {
         lg2::error(

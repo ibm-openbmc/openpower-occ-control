@@ -71,14 +71,18 @@ class Interface
      *                                 state changes.
      *  @param[in] safeModeCallBack  - callBack handler to invoke when the
      *                                 system is in safe mode.
+     *  @param[in] poweredOffCallBack - callBack handler to invoke when the
+     *                                 host is powered off.
      */
     explicit Interface(
         std::function<bool(open_power::occ::instanceID, bool)>
             occActiveCallBack,
         std::function<void(open_power::occ::instanceID, bool)> sbeCallBack,
-        std::function<void(bool)> safeModeCallBack, EventPtr& event) :
+        std::function<void(bool)> safeModeCallBack,
+        std::function<void()> poweredOffCallBack, EventPtr& event) :
         occActiveCallBack(occActiveCallBack), sbeCallBack(sbeCallBack),
-        safeModeCallBack(safeModeCallBack), event(event),
+        safeModeCallBack(safeModeCallBack),
+        poweredOffCallBack(poweredOffCallBack), event(event),
         pldmEventSignal(
             open_power::occ::utils::getBus(),
             MatchRules::type::signal() +
@@ -205,6 +209,9 @@ class Interface
      */
     std::function<void(bool)> safeModeCallBack = nullptr;
 
+    /** @brief Callback handler to be invoked when the host is powered off */
+    std::function<void()> poweredOffCallBack = nullptr;
+
     /** @brief reference to sd_event wrapped in unique_ptr */
     EventPtr& event;
 
@@ -279,6 +286,11 @@ class Interface
     };
 
     TransportImpl impl;
+
+    /**
+     * @brief The header for the most recent request.
+     */
+    pldm_msg_hdr _requestHeader{};
 
     /** @brief The response for the PLDM request msg is received flag.
      */

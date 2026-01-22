@@ -29,26 +29,22 @@ test_sources = [
     '../occ_presence.cpp',
     '../occ_command.cpp',
     '../occ_dbus.cpp',
+    '../pldm.cpp',
     '../powercap.cpp',
-    '../i2c_occ.cpp',
+    '../powermode.cpp',
     '../utils.cpp',
     occ_sensor_hpp,
+    '../occ_poll_handler.cpp',
 ]
 
-if get_option('with-host-communication-protocol') == 'pldm'
-    test_sources += ['../pldm.cpp']
+if get_option('app-poll-support').allowed()
+    test_sources += ['../occ_poll_app_handler.cpp']
+else
+    test_sources += ['../occ_poll_kernel_handler.cpp']
 endif
 
-if get_option('power10-support').allowed()
-    test_sources += ['../powermode.cpp']
-endif
 
-tests = [
-    'error_files_tests.cpp',
-    'occ_dbus_test.cpp',
-    'TestI2cOcc.cpp',
-    'utest.cpp',
-]
+tests = ['error_files_tests.cpp', 'occ_dbus_test.cpp', 'utest.cpp']
 
 pthread_dep = dependency('threads')
 

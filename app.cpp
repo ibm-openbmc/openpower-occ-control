@@ -2,14 +2,13 @@
 
 #include "occ_events.hpp"
 #include "occ_manager.hpp"
-#include "utils.hpp"
-
-#ifdef POWER10
 #include "powermode.hpp"
-#endif
+#include "utils.hpp"
 
 #include <org/open_power/OCC/Device/error.hpp>
 #include <phosphor-logging/lg2.hpp>
+#include <sdeventplus/source/signal.hpp>
+#include <stdplus/signal.hpp>
 #include <xyz/openbmc_project/Common/error.hpp>
 
 using namespace sdbusplus::org::open_power::OCC::Device::Error;
@@ -36,17 +35,32 @@ int main(int /*argc*/, char** /*argv[]*/)
 
     // Add object manager interfaces (for mapper)
     sdbusplus::server::manager_t objManager(bus, OCC_CONTROL_ROOT);
-#ifdef READ_OCC_SENSORS
+
     sdbusplus::server::manager_t objManagerXyz(bus, OCC_SENSORS_ROOT);
-#endif
-#ifdef POWER10
+
     sdbusplus::server::manager_t objManagerXyzControl(
         bus, "/xyz/openbmc_project/control");
-#endif
+
     sdbusplus::server::manager_t objManagerXyzInventory(
         bus, "/xyz/openbmc_project/inventory");
     open_power::occ::Manager mgr(eventP);
     mgr.createPldmHandle();
+
+    try
+    {
+        // Enable SIGUSR1 handling to collect data on dump request
+        stdplus::signal::block(SIGUSR1);
+        sdeventplus::source::Signal sigUsr1(
+            eventP.get(), SIGUSR1,
+            std::bind(&open_power::occ::Manager::collectDumpData, &mgr,
+                      std::placeholders::_1, std::placeholders::_2));
+        sigUsr1.set_floating(true);
+        lg2::info("USR1 signal handler enabled");
+    }
+    catch (const std::exception& e)
+    {
+        lg2::error("Failed to enable SIGUSR1 handler: {ERR}", "ERR", e.what());
+    }
 
     // Claim the bus since all the house keeping is done now
     bus.request_name(OCC_CONTROL_BUSNAME);
