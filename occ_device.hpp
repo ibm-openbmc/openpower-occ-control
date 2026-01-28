@@ -101,7 +101,7 @@ class Device
 
         if (master())
         {
-            pmode->addIpsWatch(poll);
+            pmode->addIpsWatch();
         }
 
         throttleProcPower.addWatch(poll);

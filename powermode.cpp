@@ -118,7 +118,7 @@ void PowerMode::createIpsObject()
         }
 
         // Starts watching for IPS state changes.
-        addIpsWatch(true);
+        addIpsWatch();
 
         needToSendIpsData = true;
     }
@@ -455,10 +455,10 @@ CmdStatus PowerMode::sendModeChange()
             }
             else
             {
-                if (!watching)
+                if (!watchingIPS)
                 {
                     // Starts watching for IPS state changes.
-                    addIpsWatch(true);
+                    addIpsWatch();
                 }
             }
         }
@@ -1075,48 +1075,55 @@ bool PowerMode::useDefaultIPSParms()
 bool PowerMode::openIpsFile()
 {
     bool rc = true;
-    fd = open(ipsStatusFile.c_str(), O_RDONLY | O_NONBLOCK);
-    const int open_errno = errno;
-    if (fd < 0)
+    if (std::filesystem::exists(ipsStatusFile))
     {
-        lg2::error("openIpsFile Error({ERR})={STR} : File={FILE}", "ERR",
-                   open_errno, "STR", strerror(open_errno), "FILE",
-                   ipsStatusFile);
-
-        close(fd);
-
-        using namespace sdbusplus::org::open_power::OCC::Device::Error;
-        report<OpenFailure>(
-            phosphor::logging::org::open_power::OCC::Device::OpenFailure::
-                CALLOUT_ERRNO(open_errno),
-            phosphor::logging::org::open_power::OCC::Device::OpenFailure::
-                CALLOUT_DEVICE_PATH(ipsStatusFile.c_str()));
-
-        // We are no longer watching the error
-        if (ipsObject)
+        fd = open(ipsStatusFile.c_str(), O_RDONLY | O_NONBLOCK);
+        const int open_errno = errno;
+        if (fd < 0)
         {
-            ipsObject->active(false);
-        }
+            lg2::error("openIpsFile Error({ERR})={STR} : File={FILE}", "ERR",
+                       open_errno, "STR", strerror(open_errno), "FILE",
+                       ipsStatusFile);
 
-        watching = false;
+            close(fd);
+
+            using namespace sdbusplus::org::open_power::OCC::Device::Error;
+            report<OpenFailure>(
+                phosphor::logging::org::open_power::OCC::Device::OpenFailure::
+                    CALLOUT_ERRNO(open_errno),
+                phosphor::logging::org::open_power::OCC::Device::OpenFailure::
+                    CALLOUT_DEVICE_PATH(ipsStatusFile.c_str()));
+
+            if (ipsObject)
+            {
+                ipsObject->active(false);
+            }
+
+            // Not watching for IPS state changes
+            watchingIPS = false;
+            rc = false;
+        }
+    }
+    else
+    {
+        // Not watching for IPS state changes yet
+        watchingIPS = false;
         rc = false;
-        // NOTE: this will leave the system not reporting IPS active state to
-        // Fan Controls, Until an APP reload, or IPL and we will attempt again.
     }
     return rc;
 }
 
 // Starts to watch for IPS active state changes.
-void PowerMode::addIpsWatch(bool poll)
+void PowerMode::addIpsWatch()
 {
-    // open file and register callback on file if we are not currently watching,
-    // and if poll=true, and if we are the master.
-    if ((!watching) && poll)
+    // open file and register callback on file if we are not currently watching
+    // for state changes
+    if (!watchingIPS)
     {
         //  Open the file
         if (openIpsFile())
         {
-            // register the callback handler which sets 'watching'
+            // register the callback handler which sets 'watchingIPS'
             registerIpsStatusCallBack();
         }
     }
@@ -1125,16 +1132,12 @@ void PowerMode::addIpsWatch(bool poll)
 // Stops watching for IPS active state changes.
 void PowerMode::removeIpsWatch()
 {
-    //  NOTE: we want to remove event, close file, and IPS active false no
-    //  matter what the 'watching' flags is set to.
-
-    // We are no longer watching the error
     if (ipsObject)
     {
+        // Stop watching for state changes
         ipsObject->active(false);
     }
-
-    watching = false;
+    watchingIPS = false;
 
     // Close file
     close(fd);
@@ -1167,8 +1170,8 @@ void PowerMode::registerIpsStatusCallBack()
     {
         // puts sourcePtr in the event source.
         eventSource.reset(sourcePtr);
-        // Set we are watching the error
-        watching = true;
+        // Set flag indicating the IPS state is being monitored
+        watchingIPS = true;
     }
 }
 
@@ -1194,12 +1197,11 @@ void PowerMode::analyzeIpsEvent()
         // NOTE: upon file access error we can not just re-open file, we have to
         // remove and add to watch.
         removeIpsWatch();
-        addIpsWatch(true);
+        addIpsWatch();
     }
 
-    // if we are 'watching' that is the file seek, or the re-open passed.. we
-    // can read the data
-    if (watching)
+    // if 'watchingIPS' is true, the file is ready to read the state
+    if (watchingIPS)
     {
         // This file gets created when polling OCCs. A value or length of 0 is
         // deemed success. That means we would disable IPS active on dbus.
@@ -1248,14 +1250,11 @@ void PowerMode::analyzeIpsEvent()
     {
         removeIpsWatch();
 
-        // If the Retry did not get to "watching = true" we already have an
+        // If the Retry did not set "watchingIPS = true" we already have an
         // error log, just post trace.
         lg2::error("Retry on File seek Error({ERR})={STR} : File={FILE}", "ERR",
                    open_errno, "STR", strerror(open_errno), "FILE",
                    ipsStatusFile);
-
-        // NOTE: this will leave the system not reporting IPS active state to
-        // Fan Controls, Until an APP reload, or IPL and we will attempt again.
     }
 
     return;
