@@ -308,12 +308,8 @@ class PowerMode : public ModeInterface
         masterActive = isActive;
     };
 
-    /** @brief Starts to monitor for IPS active state change conditions
-     *
-     *  @param[in] poll - Indicates whether or not the IPS state file should
-     *                    actually be read for changes.
-     */
-    void addIpsWatch(bool poll = true);
+    /** @brief Starts to monitor for IPS active state change conditions */
+    void addIpsWatch();
 
     /** @brief Removes IPS active watch */
     void removeIpsWatch();
@@ -386,8 +382,8 @@ class PowerMode : public ModeInterface
         std::filesystem::path{OCC_HWMON_PATH} /
         std::filesystem::path{OCC_MASTER_NAME} / "occ_ips_status";
 
-    /** @brief Current state of error watching */
-    bool watching = false;
+    /** @brief Current state of watching for IPS changes */
+    bool watchingIPS = false;
 
     /** @brief Set at IPS object creation and cleared after sending IPS data */
     bool needToSendIpsData = false;
