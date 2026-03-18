@@ -217,27 +217,35 @@ bool PowerCap::getPcapEnabled()
 
 fs::path PowerCap::getPcapFilename(const std::regex& expr)
 {
-    if (pcapBasePathname.empty())
+    if (masterOccObj.has_value())
     {
-        pcapBasePathname = occStatus.getHwmonPath();
-    }
-
-    if (fs::exists(pcapBasePathname))
-    {
-        // Search for pcap file based on the supplied expr
-        for (auto& file : fs::directory_iterator(pcapBasePathname))
+        // Refresh the path if it's empty or no longer exists
+        // (hwmon numbers can change after reboot/driver reload)
+        if (pcapBasePathname.empty() || !fs::exists(pcapBasePathname))
         {
-            if (std::regex_search(file.path().string(), expr))
+            pcapBasePathname = masterOccObj->get().getHwmonPath();
+            lg2::info("getPcapFilename: updated OCC{INST} path to {BASE}",
+                      "INST", masterOccObj->get().getOccInstanceID(), "BASE",
+                      pcapBasePathname);
+        }
+
+        if (fs::exists(pcapBasePathname))
+        {
+            // Search for pcap file based on the supplied expr
+            for (auto& file : fs::directory_iterator(pcapBasePathname))
             {
-                // Found match
-                return file;
+                if (std::regex_search(file.path().string(), expr))
+                {
+                    // Found match
+                    return file;
+                }
             }
         }
-    }
-    else
-    {
-        lg2::error("Power Cap base filename not found: {FILE}", "FILE",
-                   pcapBasePathname);
+        else
+        {
+            lg2::error("Power Cap base filename not found: {FILE}", "FILE",
+                       pcapBasePathname);
+        }
     }
 
     // return empty path

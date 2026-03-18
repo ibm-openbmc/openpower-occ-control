@@ -1160,7 +1160,17 @@ void Manager::updatePcapBounds(bool& parmsChanged, uint32_t& capSoftMin,
 {
     if (pcap)
     {
-        pcap->updatePcapBounds(parmsChanged, capSoftMin, capHardMin, capMax);
+        for (auto& obj : statusObjects)
+        {
+            if (obj->isMasterOcc())
+            {
+                lg2::info("updatePcapBounds: setting OCC{INST} as pcap master",
+                          "INST", obj->getOccInstanceID());
+                pcap->setMasterOccObj(*obj);
+                break;
+            }
+        }
+        pcap->updatePcapBounds();
     }
 }
 
