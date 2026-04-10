@@ -36,7 +36,19 @@ test_sources = [
     occ_sensor_hpp,
 ]
 
-tests = ['error_files_tests.cpp', 'occ_dbus_test.cpp', 'utest.cpp']
+if get_option('app-poll-support').allowed()
+    test_sources += ['../occ_poll_app_handler.cpp']
+else
+    test_sources += ['../occ_poll_kernel_handler.cpp']
+endif
+
+
+tests = [
+    'error_files_tests.cpp',
+    'occ_dbus_test.cpp',
+    'utest.cpp',
+    'error_readfile_race_test.cpp',
+]
 
 pthread_dep = dependency('threads')
 
