@@ -54,7 +54,7 @@ class ErrorReadFileRaceTest : public ::testing::Test
   public:
     ErrorReadFileRaceTest() :
         rc(sd_event_default(&event)), pEvent(event), manager(pEvent),
-        status(pEvent, "/dummy1", manager, powerMode)
+        occObj(pEvent, "/dummy1", manager, powerMode)
     {
         EXPECT_GE(rc, 0);
         event = nullptr;
@@ -87,7 +87,7 @@ class ErrorReadFileRaceTest : public ::testing::Test
     open_power::occ::EventPtr pEvent;
     std::unique_ptr<powermode::PowerMode> powerMode = nullptr;
     Manager manager;
-    Status status;
+    OccObject occObj;
 
     fs::path testDir;
     fs::path errorFile;

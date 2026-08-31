@@ -18,7 +18,7 @@ using instanceID = unsigned int;
 using sensorID = uint8_t;
 using sensorName = std::string;
 using sensorDefs = std::tuple<sensorID, sensorName>;
-const std::map<instanceID, sensorDefs> Status::sensorMap = {
+const std::map<instanceID, sensorDefs> OccObject::sensorMap = {
 \
 % for occ in occDict:
 <%

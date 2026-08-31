@@ -17,7 +17,7 @@ namespace occ
 
 using namespace std::literals::chrono_literals;
 
-class Status;
+class OccObject;
 
 constexpr auto EXTN_LABEL_FMIN = 0x464D494E;
 constexpr auto EXTN_LABEL_FDIS = 0x46444953;

@@ -210,7 +210,10 @@ std::string OccDBusSensors::getChassisPath()
         // chassis the OCCs are on.
         if (paths.size() == 1)
         {
-            return paths[0];
+            lg2::info(
+                "getChassisPath found {NUM} chassis objects with 1st: {PATH}",
+                "NUM", paths.size(), "PATH", paths[0]);
+            return paths[1];
         }
         else if (std::find(paths.begin(), paths.end(), defaultChassisPath) ==
                  paths.end())

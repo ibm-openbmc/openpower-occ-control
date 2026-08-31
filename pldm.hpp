@@ -1,7 +1,7 @@
 #pragma once
 
 #include "occ_events.hpp"
-#include "occ_status.hpp"
+#include "occ_object.hpp"
 #include "utils.hpp"
 
 #include <libpldm/instance-id.h>

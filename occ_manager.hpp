@@ -1,7 +1,7 @@
 #pragma once
 
+#include "occ_object.hpp"
 #include "occ_pass_through.hpp"
-#include "occ_status.hpp"
 #include "pldm.hpp"
 
 #ifdef PHAL_SUPPORT
@@ -176,8 +176,8 @@ class Manager
     /** @brief OCC pass-through objects */
     std::vector<std::unique_ptr<PassThrough>> passThroughObjects;
 
-    /** @brief OCC Status objects */
-    std::vector<std::unique_ptr<Status>> statusObjects;
+    /** @brief OCC objects */
+    std::vector<std::unique_ptr<OccObject>> occObjects;
 
     /** @brief Power cap monitor and occ notification object */
     std::unique_ptr<open_power::occ::powercap::PowerCap> pcap;

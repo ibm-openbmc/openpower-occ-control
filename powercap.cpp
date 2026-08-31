@@ -1,4 +1,4 @@
-#include "occ_status.hpp"
+#include "occ_object.hpp"
 
 #include <phosphor-logging/lg2.hpp>
 #include <powercap.hpp>

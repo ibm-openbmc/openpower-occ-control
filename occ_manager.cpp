@@ -46,7 +46,7 @@ void Manager::createPldmHandle()
 // finds the available devices/processors.
 // (function is called every time the discoverTimer expires)
 // - create the PowerMode object to control OCC modes
-// - create statusObjects for each OCC device found
+// - create occObjects for each OCC device found
 // - waits for OCC Active sensors PDRs to become available
 // - restart discoverTimer if all data is not available yet
 void Manager::findAndCreateObjects()
@@ -72,6 +72,14 @@ void Manager::findAndCreateObjects()
                 // Note on the first pass prevOCCSearch will be empty,
                 // so there will be at least one delay to give things
                 // a chance to settle.
+                static bool tracedOCCWait = false;
+                if (!tracedOCCWait || (prevOCCSearch.size() != occs.size()))
+                {
+                    lg2::info(
+                        "Manager::findAndCreateObjects(): Waiting for OCC devices in /dev (currently {QTY})",
+                        "QTY", occs.size());
+                    tracedOCCWait = true;
+                }
                 prevOCCSearch = occs;
 
                 lg2::info(
@@ -98,7 +106,7 @@ void Manager::findAndCreateObjects()
                 waitingForAllOccActiveSensors = true;
 
                 // Find/update the processor path associated with each OCC
-                for (auto& obj : statusObjects)
+                for (auto& obj : occObjects)
                 {
                     obj->updateProcAssociation();
                 }
@@ -165,7 +173,7 @@ void Manager::checkAllActiveSensors()
 
         // Start with the assumption that all are available
         allActiveSensorAvailable = true;
-        for (auto& obj : statusObjects)
+        for (auto& obj : occObjects)
         {
             if ((!obj->occActive()) && (!obj->getPldmSensorReceived()))
             {
@@ -242,6 +250,17 @@ void Manager::checkAllActiveSensors()
                 "checkAllActiveSensors(): OCC Active sensors are available");
             waitingForAllOccActiveSensors = false;
 
+            // Retry processor association for any OCC that failed at
+            // object-creation time (host D-Bus objects may not have existed
+            // yet).
+            for (auto& obj : occObjects)
+            {
+                if (obj->getProcPath().empty())
+                {
+                    obj->updateProcAssociation();
+                }
+            }
+
             if (resetRequired)
             {
                 initiateOccRequest(resetInstance);
@@ -314,7 +333,7 @@ void Manager::createObjects(const std::string& occ)
 {
     auto path = fs::path(OCC_CONTROL_ROOT) / occ;
 
-    statusObjects.emplace_back(std::make_unique<Status>(
+    occObjects.emplace_back(std::make_unique<OccObject>(
         event, path.c_str(), *this, pmode,
         std::bind(std::mem_fn(&Manager::statusCallBack), this,
                   std::placeholders::_1, std::placeholders::_2),
@@ -329,10 +348,10 @@ void Manager::createObjects(const std::string& occ)
         pcap = std::make_unique<open_power::occ::powercap::PowerCap>();
     }
 
-    if (statusObjects.back()->isMasterOcc())
+    if (occObjects.back()->isMasterOcc())
     {
         lg2::info("Manager::createObjects(): OCC{INST} is the master", "INST",
-                  statusObjects.back()->getOccInstanceID());
+                  occObjects.back()->getOccInstanceID());
         _pollTimer->setEnabled(false);
 
         // Set the master OCC on the PowerMode object
@@ -375,7 +394,7 @@ void Manager::initiateOccRequest(instanceID instance)
             "INST", instance);
 
         // Make sure ALL OCC comm stops to all OCCs before the reset
-        for (auto& obj : statusObjects)
+        for (auto& obj : occObjects)
         {
             if (obj->occActive())
             {
@@ -415,7 +434,7 @@ void Manager::statusCallBack(instanceID instance, bool status)
             waitForAllOccsTimer->restartOnce(60s);
         }
 
-        if (activeCount == statusObjects.size())
+        if (activeCount == occObjects.size())
         {
             // All OCCs are now running
             if (waitForAllOccsTimer->isEnabled())
@@ -514,7 +533,7 @@ void Manager::statusCallBack(instanceID instance, bool status)
                 "COUNT", activeCount, "INST", instance, "STATUS", status);
         }
         // Clear OCC sensors
-        for (auto& obj : statusObjects)
+        for (auto& obj : occObjects)
         {
             if (instance == obj->getOccInstanceID())
             {
@@ -535,12 +554,12 @@ void Manager::statusCallBack(instanceID instance, bool status)
 
 void Manager::sbeTimeout(unsigned int instance)
 {
-    auto obj = std::find_if(statusObjects.begin(), statusObjects.end(),
+    auto obj = std::find_if(occObjects.begin(), occObjects.end(),
                             [instance](const auto& obj) {
                                 return instance == obj->getOccInstanceID();
                             });
 
-    if (obj != statusObjects.end() && (*obj)->occActive())
+    if (obj != occObjects.end() && (*obj)->occActive())
     {
         lg2::info("SBE timeout, requesting HRESET (OCC{INST})", "INST",
                   instance);
@@ -558,13 +577,13 @@ void Manager::sbeTimeout(unsigned int instance)
 
 bool Manager::updateOCCActive(instanceID instance, bool status)
 {
-    auto obj = std::find_if(statusObjects.begin(), statusObjects.end(),
+    auto obj = std::find_if(occObjects.begin(), occObjects.end(),
                             [instance](const auto& obj) {
                                 return instance == obj->getOccInstanceID();
                             });
 
     const bool hostRunning = open_power::occ::utils::isHostRunning();
-    if (obj != statusObjects.end())
+    if (obj != occObjects.end())
     {
         if (!hostRunning && (status == true))
         {
@@ -627,7 +646,7 @@ void Manager::updateOccSafeMode(bool safeMode)
 {
     pmode->updateDbusSafeMode(safeMode);
     // Update the processor throttle status on dbus
-    for (auto& obj : statusObjects)
+    for (auto& obj : occObjects)
     {
         obj->updateThrottle(safeMode, THROTTLED_SAFE);
     }
@@ -644,11 +663,11 @@ void Manager::sbeHRESETResult(instanceID instance, bool success)
 #endif
 
         // Re-enable communication with this OCC
-        auto obj = std::find_if(statusObjects.begin(), statusObjects.end(),
+        auto obj = std::find_if(occObjects.begin(), occObjects.end(),
                                 [instance](const auto& obj) {
                                     return instance == obj->getOccInstanceID();
                                 });
-        if (obj != statusObjects.end() && (!(*obj)->occActive()))
+        if (obj != occObjects.end() && (!(*obj)->occActive()))
         {
             (*obj)->occActive(true);
         }
@@ -817,7 +836,7 @@ void Manager::pollerTimerExpired()
         }
         return;
     }
-    for (auto& obj : statusObjects)
+    for (auto& obj : occObjects)
     {
         if (!obj->occActive())
         {
@@ -939,7 +958,7 @@ void Manager::ambientCallback(sdbusplus::message_t& msg)
                    "TEMP", ambient, "ALT", altitude);
 
         // Send ambient and altitude to all OCCs
-        for (auto& obj : statusObjects)
+        for (auto& obj : occObjects)
         {
             if (obj->occActive())
             {
@@ -973,12 +992,12 @@ void Manager::occsNotAllRunning()
             "occsNotAllRunning: Ignoring waitForAllOccsTimer because reset is in progress");
         return;
     }
-    if (activeCount != statusObjects.size())
+    if (activeCount != occObjects.size())
     {
         // Not all OCCs went active
         lg2::warning(
             "occsNotAllRunning: Active OCC count ({COUNT}) does not match expected count ({EXP})",
-            "COUNT", activeCount, "EXP", statusObjects.size());
+            "COUNT", activeCount, "EXP", occObjects.size());
         // Procs may be garded, so may be expected
     }
 
@@ -1080,7 +1099,7 @@ void Manager::createPldmSensorPEL()
 void Manager::validateOccMaster()
 {
     int masterInstance = -1;
-    for (auto& obj : statusObjects)
+    for (auto& obj : occObjects)
     {
         auto instance = obj->getOccInstanceID();
 
@@ -1140,10 +1159,9 @@ void Manager::validateOccMaster()
     if (masterInstance < 0)
     {
         lg2::error("validateOccMaster: Master OCC not found! (of {NUM} OCCs)",
-                   "NUM", statusObjects.size());
+                   "NUM", occObjects.size());
         // request reset
-        statusObjects.front()->deviceError(
-            Error::Descriptor(PRESENCE_ERROR_PATH));
+        occObjects.front()->deviceError(Error::Descriptor(PRESENCE_ERROR_PATH));
     }
     else
     {
@@ -1159,7 +1177,7 @@ void Manager::updatePcapBounds(bool& parmsChanged, uint32_t& capSoftMin,
 {
     if (pcap)
     {
-        for (auto& obj : statusObjects)
+        for (auto& obj : occObjects)
         {
             if (obj->isMasterOcc())
             {
@@ -1197,12 +1215,12 @@ void Manager::collectDumpData(sdeventplus::source::Signal&,
 {
     json data;
     lg2::info("collectDumpData()");
-    data["objectCount"] = std::to_string(statusObjects.size()) + " OCC objects";
-    if (statusObjects.size() > 0)
+    data["objectCount"] = std::to_string(occObjects.size()) + " OCC objects";
+    if (occObjects.size() > 0)
     {
         try
         {
-            for (auto& occ : statusObjects)
+            for (auto& occ : occObjects)
             {
                 json occData;
                 auto instance = occ->getOccInstanceID();

@@ -25,7 +25,7 @@ class ErrorFiles : public ::testing::Test
   public:
     ErrorFiles() :
         rc(sd_event_default(&event)), pEvent(event), manager(pEvent),
-        status(pEvent, "/dummy1", manager, powerMode)
+        occObj(pEvent, "/dummy1", manager, powerMode)
     {
         EXPECT_GE(rc, 0);
         event = nullptr;
@@ -78,7 +78,7 @@ class ErrorFiles : public ::testing::Test
     std::unique_ptr<powermode::PowerMode> powerMode = nullptr;
 
     Manager manager;
-    Status status;
+    OccObject occObj;
 
     fs::path devicePath;
     fs::path legacyDevicePath;
@@ -87,7 +87,7 @@ class ErrorFiles : public ::testing::Test
 
 TEST_F(ErrorFiles, AddDeviceErrorWatch)
 {
-    Device occDevice(pEvent, devicePath, manager, status, powerMode);
+    Device occDevice(pEvent, devicePath, manager, occObj, powerMode);
 
     occDevice.addErrorWatch(false);
     occDevice.removeErrorWatch();

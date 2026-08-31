@@ -63,20 +63,20 @@ const uint8_t THROTTLED_THERMAL = 0x02;
 const uint8_t THROTTLED_SAFE = 0x04;
 const uint8_t THROTTLED_ALL = 0xFF;
 
-/** @class Status
+/** @class OccObject
  *  @brief Implementation of OCC Active Status
  */
-class Status : public Interface
+class OccObject : public Interface
 {
   public:
-    Status() = delete;
-    ~Status() = default;
-    Status(const Status&) = delete;
-    Status& operator=(const Status&) = delete;
-    Status(Status&&) = delete;
-    Status& operator=(Status&&) = delete;
+    OccObject() = delete;
+    ~OccObject() = default;
+    OccObject(const OccObject&) = delete;
+    OccObject& operator=(const OccObject&) = delete;
+    OccObject(OccObject&&) = delete;
+    OccObject& operator=(OccObject&&) = delete;
 
-    /** @brief Constructs the Status object and
+    /** @brief Constructs the OccObject and
      *         the underlying device object
      *
      *  @param[in] event    - sd_event unique pointer reference
@@ -88,10 +88,10 @@ class Status : public Interface
      *                             OCC if PLDM is the host communication
      *                             protocol
      */
-    Status(EventPtr& event, const char* path, Manager& managerRef,
-           std::unique_ptr<powermode::PowerMode>& powerModeRef,
-           std::function<void(instanceID, bool)> callBack = nullptr,
-           std::function<void(instanceID)> resetCallBack = nullptr) :
+    OccObject(EventPtr& event, const char* path, Manager& managerRef,
+              std::unique_ptr<powermode::PowerMode>& powerModeRef,
+              std::function<void(instanceID, bool)> callBack = nullptr,
+              std::function<void(instanceID)> resetCallBack = nullptr) :
         Interface(utils::getBus(), getDbusPath(path).c_str(),
                   Interface::action::defer_emit),
         path(path), managerCallBack(callBack), instance(getInstance(path)),
@@ -108,7 +108,7 @@ class Status : public Interface
                 sdbusRule::interface("org.open_power.Control.Host") +
                 sdbusRule::argN(0, Control::convertForMessage(
                                        Control::Host::Command::OCCReset)),
-            std::bind(std::mem_fn(&Status::hostControlEvent), this,
+            std::bind(std::mem_fn(&OccObject::hostControlEvent), this,
                       std::placeholders::_1)),
         occCmd(instance, (fs::path(OCC_CONTROL_ROOT) /
                           (std::string(OCC_NAME) + std::to_string(instance)))
@@ -116,7 +116,7 @@ class Status : public Interface
         sdpEvent(sdeventplus::Event::get_default()),
         safeStateDelayTimer(
             sdeventplus::utility::Timer<sdeventplus::ClockId::Monotonic>(
-                sdpEvent, std::bind(&Status::safeStateDelayExpired, this))),
+                sdpEvent, std::bind(&OccObject::safeStateDelayExpired, this))),
         resetCallBack(resetCallBack)
     {
         // Announce that we are ready
@@ -230,6 +230,15 @@ class Status : public Interface
             throttleHandle = std::make_unique<ThrottleInterface>(
                 utils::getBus(), procPath.c_str());
         }
+    }
+
+    /** @brief Return the processor path associated with this OCC
+     *
+     *  @return procPath (empty if not yet resolved)
+     */
+    const std::string& getProcPath() const
+    {
+        return procPath;
     }
 
     /** @brief Update the processor throttle status on dbus

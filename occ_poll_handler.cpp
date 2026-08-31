@@ -3,7 +3,7 @@
 
 #include "occ_command.hpp"
 #include "occ_dbus.hpp"
-#include "occ_status.hpp"
+#include "occ_object.hpp"
 
 #include <phosphor-logging/elog-errors.hpp>
 #include <phosphor-logging/lg2.hpp>

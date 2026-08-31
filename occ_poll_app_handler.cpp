@@ -2,8 +2,8 @@
 
 #include "occ_command.hpp"
 #include "occ_dbus.hpp"
+#include "occ_object.hpp"
 #include "occ_poll_handler.hpp"
-#include "occ_status.hpp"
 
 #include <phosphor-logging/elog-errors.hpp>
 #include <phosphor-logging/lg2.hpp>
@@ -22,8 +22,8 @@ inline uint32_t UINT32_GET(const uint8_t* i_ptr)
             ((*(i_ptr + 2)) << 8) | (*(i_ptr + 3)));
 }
 
-OccPollAppHandler::OccPollAppHandler(Status& status, unsigned int instance) :
-    statusObject(status), occInstanceID(instance)
+OccPollAppHandler::OccPollAppHandler(OccObject& occObj, unsigned int instance) :
+    occObject(occObj), occInstanceID(instance)
 {}
 
 void OccPollAppHandler::sendOccPollCmd()
@@ -395,13 +395,13 @@ void OccPollAppHandler::PushPowrSensorsToDbus(uint16_t& index)
                                                             SensorValue);
                 dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
                     sensorPath, true);
-                if (statusObject.existingSensors.find(sensorPath) ==
-                    statusObject.existingSensors.end())
+                if (occObject.existingSensors.find(sensorPath) ==
+                    occObject.existingSensors.end())
                 {
                     dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                         sensorPath, {"all_sensors"});
                 }
-                statusObject.existingSensors[sensorPath] = occInstanceID;
+                occObject.existingSensors[sensorPath] = occInstanceID;
             }
             else
             {
@@ -469,8 +469,8 @@ void OccPollAppHandler::PushCapsSensorsToDbus(uint16_t& index)
                                                         CurrentPowerReading);
             dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
                 sensorPath, true);
-            if (statusObject.existingSensors.find(sensorPath) ==
-                statusObject.existingSensors.end())
+            if (occObject.existingSensors.find(sensorPath) ==
+                occObject.existingSensors.end())
             {
                 dbus::OccDBusSensors::getOccDBus().setPurpose(
                     sensorPath,
@@ -478,7 +478,7 @@ void OccPollAppHandler::PushCapsSensorsToDbus(uint16_t& index)
                 dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                     sensorPath, {"all_sensors"});
             }
-            statusObject.existingSensors[sensorPath] = occInstanceID;
+            occObject.existingSensors[sensorPath] = occInstanceID;
 
             PollRspMaxCap = ((PollRspData[index + 6]) << 8) |
                             (PollRspData[index + 7]);
@@ -593,13 +593,13 @@ void OccPollAppHandler::PushExtnSensorsToDbus(uint16_t& index)
                                                             extnSensorValue);
                 dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
                     sensorPath, !std::isnan(extnSensorValue));
-                if (statusObject.existingSensors.find(sensorPath) ==
-                    statusObject.existingSensors.end())
+                if (occObject.existingSensors.find(sensorPath) ==
+                    occObject.existingSensors.end())
                 {
                     dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                         sensorPath, {"all_sensors"});
                 }
-                statusObject.existingSensors[sensorPath] = occInstanceID;
+                occObject.existingSensors[sensorPath] = occInstanceID;
             }
             index += bytesPerSensor;
         }
@@ -656,13 +656,13 @@ void OccPollAppHandler::PushExttSensorsToDbus(uint16_t& index)
                                                             temperature);
                 dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
                     sensorPath, !std::isnan(temperature));
-                if (statusObject.existingSensors.find(sensorPath) ==
-                    statusObject.existingSensors.end())
+                if (occObject.existingSensors.find(sensorPath) ==
+                    occObject.existingSensors.end())
                 {
                     dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                         sensorPath, {"all_sensors"});
                 }
-                statusObject.existingSensors[sensorPath] = occInstanceID;
+                occObject.existingSensors[sensorPath] = occInstanceID;
             }
             index += bytesPerSensor;
         }

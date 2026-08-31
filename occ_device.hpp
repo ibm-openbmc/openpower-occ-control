@@ -20,7 +20,7 @@ namespace occ
 {
 
 class Manager;
-class Status;
+class OccObject;
 namespace fs = std::filesystem;
 using namespace sdbusplus::org::open_power::OCC::Device::Error;
 
@@ -42,16 +42,16 @@ class Device
      *  @param[in] event    - Unique ptr reference to sd_event
      *  @param[in] path     - Path to the OCC instance
      *  @param[in] manager  - OCC manager instance
-     *  @param[in] status   - Status instance
+     *  @param[in] occObj   - OccObject instance
      *  @param[in] instance - OCC instance number
      */
     Device(EventPtr& event, const fs::path& path, Manager& manager,
-           Status& status,
+           OccObject& occObj,
 
            std::unique_ptr<powermode::PowerMode>& powerModeRef,
 
            unsigned int instance = 0) :
-        devPath(path), instance(instance), statusObject(status),
+        devPath(path), instance(instance), occObject(occObj),
         managerObject(manager),
         error(event, path / "occ_error",
               std::bind(std::mem_fn(&Device::errorCallback), this,
@@ -175,8 +175,8 @@ class Device
     /** @brief OCC instance ID */
     const unsigned int instance;
 
-    /**  Store the associated Status instance */
-    Status& statusObject;
+    /**  Store the associated OccObject instance */
+    OccObject& occObject;
 
     /** Store the parent Manager instance */
     Manager& managerObject;

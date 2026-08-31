@@ -1,7 +1,7 @@
 #include "occ_device.hpp"
 
 #include "occ_manager.hpp"
-#include "occ_status.hpp"
+#include "occ_object.hpp"
 
 #include <phosphor-logging/lg2.hpp>
 
@@ -61,7 +61,7 @@ bool Device::master() const
 bool Device::readBinary(const std::string& fileName) const
 {
     int v = 0;
-    if (statusObject.occActive())
+    if (occObject.occActive())
     {
         auto filePath = devPath / fileName;
         std::ifstream file(filePath, std::ios::in);
@@ -87,20 +87,20 @@ void Device::errorCallback(int error)
             {
                 p = fs::read_symlink(p);
             }
-            statusObject.deviceError(
+            occObject.deviceError(
                 Error::Descriptor("org.open_power.OCC.Device.Error.ReadFailure",
                                   error, p.c_str()));
         }
         else
         {
-            statusObject.deviceError(Error::Descriptor(SAFE_ERROR_PATH));
+            occObject.deviceError(Error::Descriptor(SAFE_ERROR_PATH));
         }
     }
 }
 
 void Device::presenceCallback(int)
 {
-    statusObject.deviceError(Error::Descriptor(PRESENCE_ERROR_PATH));
+    occObject.deviceError(Error::Descriptor(PRESENCE_ERROR_PATH));
 }
 
 void Device::timeoutCallback(int error)
@@ -113,21 +113,21 @@ void Device::timeoutCallback(int error)
 
 void Device::throttleProcTempCallback(int error)
 {
-    statusObject.throttleProcTemp(error);
+    occObject.throttleProcTemp(error);
     // Update the processor throttle on dbus
-    statusObject.updateThrottle(error, THROTTLED_THERMAL);
+    occObject.updateThrottle(error, THROTTLED_THERMAL);
 }
 
 void Device::throttleProcPowerCallback(int error)
 {
-    statusObject.throttleProcPower(error);
+    occObject.throttleProcPower(error);
     // Update the processor throttle on dbus
-    statusObject.updateThrottle(error, THROTTLED_POWER);
+    occObject.updateThrottle(error, THROTTLED_POWER);
 }
 
 void Device::throttleMemTempCallback(int error)
 {
-    statusObject.throttleMemTemp(error);
+    occObject.throttleMemTemp(error);
 }
 
 fs::path Device::getFilenameByRegex(fs::path basePath,

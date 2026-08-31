@@ -1,7 +1,7 @@
 #include "occ_command.hpp"
 #include "occ_dbus.hpp"
+#include "occ_object.hpp"
 #include "occ_poll_handler.hpp"
-#include "occ_status.hpp"
 
 #include <phosphor-logging/elog-errors.hpp>
 #include <phosphor-logging/lg2.hpp>
@@ -42,9 +42,9 @@ T readFile(const std::string& path)
     return data;
 }
 
-OccPollKernelHandler::OccPollKernelHandler(Status& status,
+OccPollKernelHandler::OccPollKernelHandler(OccObject& occObj,
                                            unsigned int instance) :
-    statusObject(status), occInstanceID(instance)
+    occObject(occObj), occInstanceID(instance)
 {}
 
 std::optional<std::string> OccPollKernelHandler::getPowerLabelFunctionID(
@@ -143,7 +143,7 @@ bool OccPollKernelHandler::pollReadStateStatus(unsigned int& state,
 void OccPollKernelHandler::HandlePollAction()
 {
     static bool tracedError[8] = {0};
-    const fs::path sensorPath = statusObject.getHwmonPath();
+    const fs::path sensorPath = occObject.getHwmonPath();
 
     if (fs::exists(sensorPath))
     {
@@ -153,7 +153,7 @@ void OccPollKernelHandler::HandlePollAction()
         // Read Extended sensors and push to dbus
         pushExtnSensorsToDbus(sensorPath, occInstanceID);
 
-        if (statusObject.isMasterOcc())
+        if (occObject.isMasterOcc())
         {
             // Read power sensors and push to dbus
             pushPowrSensorsToDbus(sensorPath, occInstanceID);
@@ -242,7 +242,7 @@ fs::path OccPollKernelHandler::getPcapFilename(const std::regex& expr)
 {
     if (pcapBasePathname.empty())
     {
-        pcapBasePathname = statusObject.getHwmonPath();
+        pcapBasePathname = occObject.getHwmonPath();
     }
 
     if (fs::exists(pcapBasePathname))
@@ -433,8 +433,8 @@ void OccPollKernelHandler::pushTempSensorsToDbus(const fs::path& path,
                                                     value * std::pow(10, -3));
         dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
             objectPath, !std::isnan(value));
-        if (statusObject.existingSensors.find(objectPath) ==
-            statusObject.existingSensors.end())
+        if (occObject.existingSensors.find(objectPath) ==
+            occObject.existingSensors.end())
         {
             try
             {
@@ -449,7 +449,7 @@ void OccPollKernelHandler::pushTempSensorsToDbus(const fs::path& path,
                     objectPath);
             }
         }
-        statusObject.existingSensors[objectPath] = occInstance;
+        occObject.existingSensors[objectPath] = occInstance;
     }
 
     return;
@@ -545,13 +545,13 @@ void OccPollKernelHandler::pushExtnSensorsToDbus(const fs::path& path,
                                                         extnSensorValue);
             dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
                 sensorPath, true);
-            if (statusObject.existingSensors.find(sensorPath) ==
-                statusObject.existingSensors.end())
+            if (occObject.existingSensors.find(sensorPath) ==
+                occObject.existingSensors.end())
             {
                 dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                     sensorPath, {"all_sensors"});
             }
-            statusObject.existingSensors[sensorPath] = occInstanceID;
+            occObject.existingSensors[sensorPath] = occInstanceID;
 
         } // End Extended Power Sensors.
     } // End For loop on files for Extended Sensors.
@@ -625,8 +625,8 @@ void OccPollKernelHandler::pushPowrSensorsToDbus(const fs::path& path,
             sensorPath, tempValue * std::pow(10, -3) * std::pow(10, -3));
         dbus::OccDBusSensors::getOccDBus().setOperationalStatus(
             sensorPath, true);
-        if (statusObject.existingSensors.find(sensorPath) ==
-            statusObject.existingSensors.end())
+        if (occObject.existingSensors.find(sensorPath) ==
+            occObject.existingSensors.end())
         {
             if (iter->second == "total_power0")
             {
@@ -637,7 +637,7 @@ void OccPollKernelHandler::pushPowrSensorsToDbus(const fs::path& path,
             dbus::OccDBusSensors::getOccDBus().setChassisAssociation(
                 sensorPath, {"all_sensors"});
         }
-        statusObject.existingSensors[sensorPath] = occInstanceID;
+        occObject.existingSensors[sensorPath] = occInstanceID;
     }
 
     return;

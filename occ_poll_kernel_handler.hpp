@@ -3,8 +3,8 @@
 #include "config.h"
 
 #include "occ_errors.hpp"
+#include "occ_object.hpp"
 #include "occ_poll_handler.hpp"
-#include "occ_status.hpp"
 #include "utils.hpp"
 
 #include <chrono>
@@ -19,7 +19,7 @@ namespace occ
 
 using namespace std::literals::chrono_literals;
 
-class Status;
+class OccObject;
 
 /** @class OccPollKernelHandler
  *  @brief Implements POLLing OCCs
@@ -32,7 +32,7 @@ class OccPollKernelHandler : public OccPollHandler
     OccPollKernelHandler& operator=(const OccPollKernelHandler&) = delete;
     OccPollKernelHandler(OccPollKernelHandler&&) = default;
 
-    OccPollKernelHandler(Status& status, unsigned int instance);
+    OccPollKernelHandler(OccObject& occObj, unsigned int instance);
 
     /** @brief Done every 5 Sec.: From OCC Poll push data needed to the dbus.
      *
@@ -60,8 +60,8 @@ class OccPollKernelHandler : public OccPollHandler
                             uint32_t& capMax) override;
 
   private:
-    /**  Store the associated Status instance */
-    Status& statusObject;
+    /**  Store the associated OccObject instance */
+    OccObject& occObject;
 
     const unsigned int occInstanceID;
 

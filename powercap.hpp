@@ -17,7 +17,7 @@ namespace open_power
 {
 namespace occ
 {
-class Status;
+class OccObject;
 
 namespace powercap
 {
@@ -168,9 +168,9 @@ class PowerCap : public CapLimitsInterface
                           uint32_t& capHardMin, uint32_t& capMax);
 
     /** @brief Link object to the master OCC for sending the cap */
-    void setMasterOccObj(Status& masterStatusObj)
+    void setMasterOccObj(OccObject& masterOccStatusObj)
     {
-        masterOccObj = std::ref(masterStatusObj);
+        masterOccObj = std::ref(masterOccStatusObj);
     };
 
   private:
@@ -223,7 +223,7 @@ class PowerCap : public CapLimitsInterface
     fs::path getPcapFilename(const std::regex& expr);
 
     /* @brief Link to the master OCC */
-    std::optional<std::reference_wrapper<Status>> masterOccObj;
+    std::optional<std::reference_wrapper<OccObject>> masterOccObj;
 
     /** @brief Used to subscribe to dbus pcap property changes **/
     sdbusplus::match pcapMatch;

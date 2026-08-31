@@ -1,9 +1,9 @@
 // Stub definitions for symbols pulled in transitively by
 // occ_poll_kernel_handler.cpp but not needed by the sensor-path tests.
 //
-// occ_poll_kernel_handler.cpp includes occ_status.hpp which drags in:
+// occ_poll_kernel_handler.cpp includes occ_object.hpp which drags in:
 //
-//   Status  (key fn: occActive    — vtable/typeinfo emitted here)
+//   OccObject  (key fn: occActive    — vtable/typeinfo emitted here)
 //     └─ Device member
 //         └─ Presence member (key fn: analyzeEvent — vtable/typeinfo emitted
 //         here)
@@ -11,7 +11,7 @@
 //
 // occ_errors.cpp is already in the test source list so Error's vtable is
 // satisfied.  We only need to provide the key functions for Presence and
-// Status, plus the two methods that were originally missing.
+// OccObject, plus the two methods that were originally missing.
 
 // occ_presence.hpp has a private 'manager' field that is only used in the
 // real Presence::analyzeEvent() body.  Our stub leaves it empty, so clang
@@ -26,7 +26,7 @@
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-#include "occ_status.hpp"
+#include "occ_object.hpp"
 
 namespace open_power
 {
@@ -37,14 +37,14 @@ namespace occ
 // emits Presence's vtable and typeinfo.
 void Presence::analyzeEvent() {}
 
-// Status::occActive is the key function for Status; defining it here emits
-// Status's vtable and typeinfo (required by RTTI in sanitiser builds).
-bool Status::occActive(bool value)
+// OccObject::occActive is the key function for OccObject; defining it here
+// emits OccObject's vtable and typeinfo (required by RTTI in sanitiser builds).
+bool OccObject::occActive(bool value)
 {
     return value;
 }
 
-fs::path Status::getHwmonPath()
+fs::path OccObject::getHwmonPath()
 {
     return {};
 }

@@ -16,7 +16,7 @@ class VerifyOccInput : public ::testing::Test
   public:
     VerifyOccInput() :
         rc(sd_event_default(&event)), eventP(event), manager(eventP),
-        occStatus(eventP, "/test/path/occ1", manager, powerMode), pcap()
+        occObj(eventP, "/test/path/occ1", manager, powerMode), pcap()
     {
         EXPECT_GE(rc, 0);
         event = nullptr;
@@ -28,7 +28,7 @@ class VerifyOccInput : public ::testing::Test
     open_power::occ::EventPtr eventP;
 
     Manager manager;
-    Status occStatus;
+    OccObject occObj;
 
     std::unique_ptr<powermode::PowerMode> powerMode = nullptr;
 

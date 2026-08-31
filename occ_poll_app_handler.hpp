@@ -18,7 +18,7 @@ namespace occ
 
 using namespace std::literals::chrono_literals;
 
-class Status;
+class OccObject;
 
 constexpr auto SENSOR_BLOCK_VERSION_1 = 1;
 constexpr auto TEMP_SENSOR_FORMAT_16 = 16;
@@ -38,7 +38,7 @@ class OccPollAppHandler : public OccPollHandler
     OccPollAppHandler& operator=(const OccPollAppHandler&) = delete;
     OccPollAppHandler(OccPollAppHandler&&) = default;
 
-    OccPollAppHandler(Status& status, unsigned int instance);
+    OccPollAppHandler(OccObject& occObj, unsigned int instance);
 
     /** @brief Done every 5 Sec.: From OCC Poll push data needed to the dbus.
      *
@@ -66,8 +66,8 @@ class OccPollAppHandler : public OccPollHandler
                             uint32_t& capMax) override;
 
   private:
-    /**  Store the associated Status instance */
-    Status& statusObject;
+    /**  Store the associated OccObject instance */
+    OccObject& occObject;
 
     const unsigned int occInstanceID;
 

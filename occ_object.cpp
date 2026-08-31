@@ -1,4 +1,4 @@
-#include "occ_status.hpp"
+#include "occ_object.hpp"
 
 #include "occ_dbus.hpp"
 #include "occ_manager.hpp"
@@ -23,11 +23,11 @@ using ThrottleObj =
 using ThrottleReason = ThrottleObj::ThrottleReasons;
 
 // Handles updates to occActive property
-bool Status::occActive(bool value)
+bool OccObject::occActive(bool value)
 {
     if (value != this->occActive())
     {
-        lg2::info("Status::occActive OCC{INST} changed to {STATE}", "INST",
+        lg2::info("OccObject::occActive OCC{INST} changed to {STATE}", "INST",
                   instance, "STATE", value);
         if (value)
         {
@@ -51,7 +51,7 @@ bool Status::occActive(bool value)
                 // Failed to add watch for throttle events, request reset to try
                 // to recover comm
                 lg2::error(
-                    "Status::occActive: Unable to add error watch(s) for OCC{INST} watch: {ERROR}",
+                    "OccObject::occActive: Unable to add error watch(s) for OCC{INST} watch: {ERROR}",
                     "INST", instance, "ERROR", e.what());
                 deviceError(Error::Descriptor(OCC_COMM_ERROR_PATH));
                 return Base::Status::occActive(false);
@@ -123,13 +123,12 @@ bool Status::occActive(bool value)
         removeErrorWatch();
 
         /*
-         * In it's constructor, Status checks Device::bound() to see if OCC is
-         * active or not.
-         * Device::bound() checks for occX-dev0 directory.
-         * We will lose occX-dev0 directories during FSI rescan.
-         * So, if we start this application (and construct Status), and then
-         * later do FSI rescan, we will end up with occActive = true and device
-         * NOT bound. Lets correct that situation here.
+         * In it's constructor, OccObject checks Device::bound() to see if OCC
+         * is active or not. Device::bound() checks for occX-dev0 directory. We
+         * will lose occX-dev0 directories during FSI rescan. So, if we start
+         * this application (and construct OccObject), and then later do FSI
+         * rescan, we will end up with occActive = true and device NOT bound.
+         * Lets correct that situation here.
          */
         device.setActive(true);
 
@@ -143,7 +142,7 @@ bool Status::occActive(bool value)
             // Failed to add watch for throttle events, request reset to try to
             // recover comm
             lg2::error(
-                "Status::occActive: Unable to add error watch(s) again for OCC{INST} watch: {ERROR}",
+                "OccObject::occActive: Unable to add error watch(s) again for OCC{INST} watch: {ERROR}",
                 "INST", instance, "ERROR", e.what());
             deviceError(Error::Descriptor(OCC_COMM_ERROR_PATH));
             return Base::Status::occActive(false);
@@ -164,7 +163,7 @@ bool Status::occActive(bool value)
 }
 
 // Callback handler when a device error is reported.
-void Status::deviceError(Error::Descriptor d)
+void OccObject::deviceError(Error::Descriptor d)
 {
     if (pmode && device.master())
     {
@@ -186,10 +185,10 @@ void Status::deviceError(Error::Descriptor d)
 }
 
 // Sends message to host control command handler to reset OCC
-void Status::resetOCC()
+void OccObject::resetOCC()
 {
-    lg2::info(">>Status::resetOCC() - requesting reset for OCC{INST}", "INST",
-              instance);
+    lg2::info(">>OccObject::resetOCC() - requesting reset for OCC{INST}",
+              "INST", instance);
     this->occActive(false);
     if (resetCallBack)
     {
@@ -199,7 +198,7 @@ void Status::resetOCC()
 
 // Handler called by Host control command handler to convey the
 // status of the executed command
-void Status::hostControlEvent(sdbusplus::message_t& msg)
+void OccObject::hostControlEvent(sdbusplus::message_t& msg)
 {
     std::string cmdCompleted{};
     std::string cmdStatus{};
@@ -225,7 +224,7 @@ void Status::hostControlEvent(sdbusplus::message_t& msg)
 }
 
 // Called from Manager::pollerTimerExpired() in preperation to POLL OCC.
-void Status::PollHandler()
+void OccObject::PollHandler()
 {
     if (stateValid)
     {
@@ -239,7 +238,7 @@ void Status::PollHandler()
 }
 
 // Special processing that needs to happen once the OCCs change to ACTIVE state
-void Status::occsWentActive()
+void OccObject::occsWentActive()
 {
     CmdStatus status = CmdStatus::SUCCESS;
 
@@ -251,7 +250,7 @@ void Status::occsWentActive()
     if (status != CmdStatus::SUCCESS)
     {
         lg2::error(
-            "Status::occsWentActive: OCC mode change failed with status {STATUS}",
+            "OccObject::occsWentActive: OCC mode change failed with status {STATUS}",
             "STATUS", status);
 
         // Disable and reset to try recovering
@@ -260,7 +259,8 @@ void Status::occsWentActive()
 }
 
 // Send Ambient and Altitude to the OCC
-CmdStatus Status::sendAmbient(const uint8_t inTemp, const uint16_t inAltitude)
+CmdStatus OccObject::sendAmbient(const uint8_t inTemp,
+                                 const uint16_t inAltitude)
 {
     CmdStatus status = CmdStatus::FAILURE;
     bool ambientValid = true;
@@ -331,7 +331,7 @@ CmdStatus Status::sendAmbient(const uint8_t inTemp, const uint16_t inAltitude)
 }
 
 // Called when safe timer expires to determine if OCCs need to be reset
-void Status::safeStateDelayExpired()
+void OccObject::safeStateDelayExpired()
 {
     if (this->occActive())
     {
@@ -343,7 +343,7 @@ void Status::safeStateDelayExpired()
     }
 }
 
-fs::path Status::getHwmonPath()
+fs::path OccObject::getHwmonPath()
 {
     using namespace std::literals::string_literals;
 
@@ -354,15 +354,14 @@ fs::path Status::getHwmonPath()
         if (!hwmonPath.empty())
         {
             lg2::warning(
-                "Status::getHwmonPath(): path no longer exists: {PATH}", "PATH",
-                hwmonPath);
+                "OccObject::getHwmonPath(): path no longer exists: {PATH}",
+                "PATH", hwmonPath);
             hwmonPath.clear();
         }
 
         // Build the base HWMON path
-        fs::path prefixPath =
-            fs::path{OCC_HWMON_PATH + "occ-hwmon."s +
-                     std::to_string(instance + 1) + "/hwmon/"s};
+        fs::path prefixPath = fs::path{OCC_HWMON_PATH + "occ-hwmon."s +
+                                       std::to_string(instance) + "/hwmon/"s};
 
         // Get the hwmonXX directory name
         try
@@ -380,7 +379,7 @@ fs::path Status::getHwmonPath()
                 if (!tracedFail[instance])
                 {
                     lg2::error(
-                        "Status::getHwmonPath(): Found multiple ({NUM}) hwmon paths!",
+                        "OccObject::getHwmonPath(): Found multiple ({NUM}) hwmon paths!",
                         "NUM", numDirs);
                     tracedFail[instance] = true;
                 }
@@ -391,7 +390,7 @@ fs::path Status::getHwmonPath()
             if (!tracedFail[instance])
             {
                 lg2::error(
-                    "Status::getHwmonPath(): error accessing {PATH}: {ERROR}",
+                    "OccObject::getHwmonPath(): error accessing {PATH}: {ERROR}",
                     "PATH", prefixPath, "ERROR", e.what());
                 tracedFail[instance] = true;
             }
@@ -402,7 +401,7 @@ fs::path Status::getHwmonPath()
 }
 
 // Called to read state and handle any errors
-void Status::occReadStateNow()
+void OccObject::occReadStateNow()
 {
     unsigned int state;
     bool stateWasRead = false;
@@ -413,7 +412,7 @@ void Status::occReadStateNow()
     {
         // Trace OCC state changes
         lg2::info(
-            "Status::readOccState: OCC{INST} state {STATE} (lastState: {PRIOR})",
+            "OccObject::readOccState: OCC{INST} state {STATE} (lastState: {PRIOR})",
             "INST", instance, "STATE", lg2::hex, state, "PRIOR", lg2::hex,
             lastState);
         lastState = state;
@@ -522,7 +521,7 @@ void Status::occReadStateNow()
     }
 }
 
-void Status::setSensorValueToNaN() const
+void OccObject::setSensorValueToNaN() const
 {
     for (const auto& [sensorPath, occId] : existingSensors)
     {
@@ -535,7 +534,7 @@ void Status::setSensorValueToNaN() const
     return;
 }
 
-void Status::setSensorValueToNonFunctional() const
+void OccObject::setSensorValueToNonFunctional() const
 {
     for (const auto& [sensorPath, occId] : existingSensors)
     {
@@ -549,7 +548,7 @@ void Status::setSensorValueToNonFunctional() const
 }
 
 // Update processor throttle status on dbus
-void Status::updateThrottle(const bool isThrottled, const uint8_t newReason)
+void OccObject::updateThrottle(const bool isThrottled, const uint8_t newReason)
 {
     if (!throttleHandle)
     {
@@ -618,7 +617,7 @@ void Status::updateThrottle(const bool isThrottled, const uint8_t newReason)
 }
 
 // Get processor path associated with this OCC
-void Status::readProcAssociation()
+void OccObject::readProcAssociation()
 {
     std::string managingPath = path + "/power_managing";
     lg2::debug("readProcAssociation: getting endpoints for {MANAGE} ({PATH})",
