@@ -8,6 +8,8 @@
 #include <phosphor-logging/elog-errors.hpp>
 #include <phosphor-logging/lg2.hpp>
 
+#include <cmath>
+
 namespace open_power
 {
 namespace occ
@@ -26,7 +28,7 @@ OccPollAppHandler::OccPollAppHandler(OccObject& occObj, unsigned int instance) :
     occObject(occObj), occInstanceID(instance)
 {}
 
-void OccPollAppHandler::sendOccPollCmd()
+CmdStatus OccPollAppHandler::sendOccPollCmd()
 {
     // New Poll data, clear out storage vector.
     if (!PollRspData.empty())
@@ -41,7 +43,7 @@ void OccPollAppHandler::sendOccPollCmd()
 
     std::vector<std::uint8_t> cmd = {0x00, 0x00, 0x01, 0x20};
 
-    occCmd.send(cmd, PollRspData);
+    return occCmd.send(cmd, PollRspData);
 
 } // end sendOccPollCmd
 
@@ -76,7 +78,14 @@ bool OccPollAppHandler::pollReadStateStatus(unsigned int& state,
 
 void OccPollAppHandler::HandlePollAction()
 {
-    sendOccPollCmd();
+    const CmdStatus cmdStatus = sendOccPollCmd();
+
+    if (cmdStatus != CmdStatus::SUCCESS)
+    {
+        // Send already logged the failure; nothing to parse.
+        ValidPollRspData = false;
+        return;
+    }
 
     if (PollRspData.size() >= OCC_RSP_HDR_LENGTH)
     {

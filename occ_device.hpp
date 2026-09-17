@@ -24,6 +24,9 @@ class OccObject;
 namespace fs = std::filesystem;
 using namespace sdbusplus::org::open_power::OCC::Device::Error;
 
+// OCC sysfs name prefix
+const std::string sysfsName = "occ-hwmon";
+
 /** @class Device
  *  @brief Binds and unbinds the OCC driver upon request
  */

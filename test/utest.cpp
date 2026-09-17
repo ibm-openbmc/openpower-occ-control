@@ -1,3 +1,4 @@
+#include "occ_device.hpp"
 #include "powercap.hpp"
 #include "utils.hpp"
 
