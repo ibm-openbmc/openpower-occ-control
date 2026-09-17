@@ -4,6 +4,7 @@
 
 #include "occ_dbus.hpp"
 #include "occ_errors.hpp"
+#include "occ_ffdc.hpp"
 #include "utils.hpp"
 
 #include <nlohmann/json.hpp>
@@ -1139,7 +1140,9 @@ void Manager::validateOccMaster()
 
         if (obj->isMasterOcc())
         {
+#ifndef ENABLE_APP_POLL_SUPPORT
             obj->addPresenceWatchMaster();
+#endif
 
             if (masterInstance == -1)
             {

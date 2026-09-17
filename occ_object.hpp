@@ -2,7 +2,6 @@
 #include "config.h"
 
 #include "occ_command.hpp"
-#include "occ_device.hpp"
 #include "occ_events.hpp"
 #include "occ_poll_handler.hpp"
 #include "powercap.hpp"
@@ -11,6 +10,7 @@
 #ifdef ENABLE_APP_POLL_SUPPORT
 #include "occ_poll_app_handler.hpp"
 #else
+#include "occ_device.hpp"
 #include "occ_poll_kernel_handler.hpp"
 #endif
 
@@ -54,9 +54,6 @@ using sensorName = std::string;
 // OCC sensors definitions in the map
 using sensorDefs = std::tuple<sensorID, sensorName>;
 
-// OCC sysfs name prefix
-const std::string sysfsName = "occ-hwmon";
-
 const uint8_t THROTTLED_NONE = 0x00;
 const uint8_t THROTTLED_POWER = 0x01;
 const uint8_t THROTTLED_THERMAL = 0x02;
@@ -88,7 +85,8 @@ class OccObject : public Interface
      *                             OCC if PLDM is the host communication
      *                             protocol
      */
-    OccObject(EventPtr& event, const char* path, Manager& managerRef,
+    OccObject([[maybe_unused]] EventPtr& event, const char* path,
+              Manager& managerRef,
               std::unique_ptr<powermode::PowerMode>& powerModeRef,
               std::function<void(instanceID, bool)> callBack = nullptr,
               std::function<void(instanceID)> resetCallBack = nullptr) :
@@ -96,10 +94,12 @@ class OccObject : public Interface
                   Interface::action::defer_emit),
         path(path), managerCallBack(callBack), instance(getInstance(path)),
         manager(managerRef), pmode(powerModeRef),
+#ifndef ENABLE_APP_POLL_SUPPORT
         device(event,
                fs::path(DEV_PATH) /
                    fs::path(sysfsName + "." + std::to_string(instance + 1)),
                managerRef, *this, powerModeRef, instance),
+#endif
         occPollObj(*this, instance),
         hostControlSignal(
             utils::getBus(),
@@ -139,6 +139,7 @@ class OccObject : public Interface
      */
     bool occActive(bool value) override;
 
+#ifndef ENABLE_APP_POLL_SUPPORT
     /** @brief Starts OCC error detection */
     inline void addErrorWatch()
     {
@@ -156,6 +157,7 @@ class OccObject : public Interface
     {
         return device.addPresenceWatchMaster();
     }
+#endif
 
     /** @brief Gets the occ instance number */
     unsigned int getOccInstanceID()
@@ -166,7 +168,12 @@ class OccObject : public Interface
     /** @brief Is this OCC the master OCC */
     bool isMasterOcc()
     {
+#ifdef ENABLE_APP_POLL_SUPPORT
+        // Under app polling there is only one OCC, so it is always the master.
+        return instance == 0;
+#else
         return device.master();
+#endif
     }
 
     /** @brief Read OCC POLL data(by trigger kernel or by direct OCC cmd) */
@@ -303,14 +310,13 @@ class OccObject : public Interface
     std::unique_ptr<powermode::PowerMode>& pmode;
 
     /** @brief OCC device object to do bind and unbind */
-    Device device;
-
-    /** @brief OCC device object to do bind and unbind */
     OccPollHandler* MyPollHandler = nullptr;
 
 #ifdef ENABLE_APP_POLL_SUPPORT
     OccPollAppHandler occPollObj;
 #else
+    /** @brief OCC device object to do bind and unbind */
+    Device device;
     OccPollKernelHandler occPollObj;
 #endif
 

@@ -1,6 +1,7 @@
 #include "occ_object.hpp"
 
 #include "occ_dbus.hpp"
+#include "occ_ffdc.hpp"
 #include "occ_manager.hpp"
 #include "occ_sensor.hpp"
 #include "powermode.hpp"
@@ -35,11 +36,12 @@ bool OccObject::occActive(bool value)
             // Clear prior throttle reason (before setting device active)
             updateThrottle(false, THROTTLED_ALL);
 
-            // Set the device active
-            device.setActive(true);
-
             // Reset last OCC state
             lastState = 0;
+
+#ifndef ENABLE_APP_POLL_SUPPORT
+            // Set the device active
+            device.setActive(true);
 
             // Start watching for errors (throttles, etc)
             try
@@ -56,11 +58,12 @@ bool OccObject::occActive(bool value)
                 deviceError(Error::Descriptor(OCC_COMM_ERROR_PATH));
                 return Base::Status::occActive(false);
             }
+#endif
 
             // Update the OCC active sensor
             Base::Status::occActive(value);
 
-            if (device.master())
+            if (isMasterOcc())
             {
                 // Update powercap bounds from OCC
                 uint32_t capSoftMin = 0, capHardMin = 0, capMax = 0;
@@ -87,7 +90,7 @@ bool OccObject::occActive(bool value)
                 setSensorValueToNaN();
             }
 
-            if (pmode && device.master())
+            if (pmode && isMasterOcc())
             {
                 // Prevent mode changes
                 pmode->setMasterActive(false);
@@ -104,11 +107,13 @@ bool OccObject::occActive(bool value)
                 this->managerCallBack(instance, value);
             }
 
+#ifndef ENABLE_APP_POLL_SUPPORT
             // Stop watching for errors
             removeErrorWatch();
 
             // Set the device inactive
             device.setActive(false);
+#endif
 
             // Clear throttles (OCC not active after disabling device)
             updateThrottle(false, THROTTLED_ALL);
@@ -117,6 +122,7 @@ bool OccObject::occActive(bool value)
             MyPollHandler->clearOccPollTraceFlags();
         }
     }
+#ifndef ENABLE_APP_POLL_SUPPORT
     else if (value && !device.active())
     {
         // Existing error watch is on a dead file descriptor.
@@ -159,13 +165,14 @@ bool OccObject::occActive(bool value)
         // when we get the OCC inactive signal.
         device.setActive(false);
     }
+#endif
     return Base::Status::occActive(value);
 }
 
 // Callback handler when a device error is reported.
 void OccObject::deviceError(Error::Descriptor d)
 {
-    if (pmode && device.master())
+    if (pmode && isMasterOcc())
     {
         // Prevent mode changes
         pmode->setMasterActive(false);
@@ -419,7 +426,7 @@ void OccObject::occReadStateNow()
 
         if (OccState(state) == OccState::ACTIVE)
         {
-            if (pmode && device.master())
+            if (pmode && isMasterOcc())
             {
                 // Set the master OCC on the PowerMode object
                 pmode->setMasterOcc(path);

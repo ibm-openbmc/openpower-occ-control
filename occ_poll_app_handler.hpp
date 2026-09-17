@@ -2,6 +2,7 @@
 
 #include "config.h"
 
+#include "occ_command.hpp"
 #include "occ_errors.hpp"
 #include "occ_poll_handler.hpp"
 #include "utils.hpp"
@@ -89,8 +90,10 @@ class OccPollAppHandler : public OccPollHandler
     /** @brief Create CMD to Poll OCC and send. Store POLL response data for
      * use.
      *
+     * @returns CmdStatus::SUCCESS if a response was received, COMM_FAILURE
+     *          if the write/read to the OCC device failed.
      */
-    void sendOccPollCmd();
+    CmdStatus sendOccPollCmd();
 
     /**
      * @brief Take Poll response data and push Temp Sensors onto dbus.

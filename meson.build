@@ -114,7 +114,6 @@ sources += [
     'occ_pass_through.cpp',
     'occ_manager.cpp',
     'occ_object.cpp',
-    'occ_device.cpp',
     'occ_errors.cpp',
     'occ_ffdc.cpp',
     'occ_presence.cpp',
@@ -130,7 +129,7 @@ sources += [
 if get_option('app-poll-support').allowed()
     sources += ['occ_poll_app_handler.cpp']
 else
-    sources += ['occ_poll_kernel_handler.cpp']
+    sources += ['occ_device.cpp', 'occ_poll_kernel_handler.cpp']
 endif
 
 if get_option('phal-support').allowed()

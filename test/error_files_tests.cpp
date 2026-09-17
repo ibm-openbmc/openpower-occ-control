@@ -85,6 +85,7 @@ class ErrorFiles : public ::testing::Test
     fs::path occPath;
 };
 
+#ifndef ENABLE_APP_POLL_SUPPORT
 TEST_F(ErrorFiles, AddDeviceErrorWatch)
 {
     Device occDevice(pEvent, devicePath, manager, occObj, powerMode);
@@ -92,3 +93,4 @@ TEST_F(ErrorFiles, AddDeviceErrorWatch)
     occDevice.addErrorWatch(false);
     occDevice.removeErrorWatch();
 }
+#endif
