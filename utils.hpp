@@ -90,9 +90,20 @@ std::string getServiceUsingSubTree(const std::string& interface,
                                    std::string& path);
 
 /**
+ * @brief HACK: Override the host-running state used by isHostRunning().
+ *        Call with true once an OCC goes active, as a workaround for
+ *        platforms where the host boot-progress D-Bus object is not
+ *        populated.  Call with false when the host powers off.
+ *        TODO: Remove once host properly reports boot progress state.
+ *
+ * @param[in] running - true if host should be considered running
+ */
+void hackSetHostRunning(bool running);
+
+/**
  * @brief Get status of the host
  *
- * @return true is the host is running, else false
+ * @return true if the host is running, else false
  */
 bool isHostRunning();
 

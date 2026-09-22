@@ -583,9 +583,18 @@ bool Manager::updateOCCActive(instanceID instance, bool status)
                                 return instance == obj->getOccInstanceID();
                             });
 
-    const bool hostRunning = open_power::occ::utils::isHostRunning();
+    bool hostRunning = open_power::occ::utils::isHostRunning();
     if (obj != occObjects.end())
     {
+        if (status == true)
+        {
+            // HACK: once any OCC goes active the host is clearly running;
+            // set the override so isHostRunning() returns true even if the
+            // boot-progress D-Bus object is not yet populated.
+            // TODO: Remove once host properly reports boot progress state.
+            open_power::occ::utils::hackSetHostRunning(true);
+            hostRunning = true;
+        }
         if (!hostRunning && (status == true))
         {
             lg2::warning(
@@ -1198,6 +1207,10 @@ void Manager::updatePcapBounds(bool& parmsChanged, uint32_t& capSoftMin,
 // Called when pldm receives an event indicating host is powered off.
 void Manager::hostPoweredOff()
 {
+    // HACK: clear the override so isHostRunning() reflects reality again.
+    // TODO: Remove once host properly reports boot progress state.
+    open_power::occ::utils::hackSetHostRunning(false);
+
     if (resetRequired)
     {
         lg2::info("hostPoweredOff: Clearing resetRequired for OCC{INST}",
