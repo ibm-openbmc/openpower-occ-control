@@ -51,7 +51,7 @@ class Manager
     Manager& operator=(Manager&&) = delete;
     ~Manager() = default;
 
-    /** @brief Adds OCC pass-through and status objects on the bus
+    /** @brief Adds OCC pass-through and OCC objects on the bus
      *         when corresponding CPU inventory is created.
      *
      *  @param[in] event - Unique ptr reference to sd_event
@@ -149,7 +149,7 @@ class Manager
      */
     void createObjects(const std::string& occ);
 
-    /** @brief Callback handler invoked by Status object when the OccActive
+    /** @brief Callback handler invoked by occObject when the OccActive
      *         property is changed. This is needed to make sure that the
      *         error detection is started only after all the OCCs are bound.
      *         Similarly, when one of the OCC gets its OccActive property
@@ -158,7 +158,7 @@ class Manager
      *
      *  @param[in] status - OccActive status
      */
-    void statusCallBack(instanceID instance, bool status);
+    void occStatusCallback(instanceID instance, bool status);
 
     /** @brief Set flag that a PM Complex reset is needed (to be initiated
      * later) */
@@ -208,7 +208,7 @@ class Manager
     bool waitingForAllOccActiveSensors = false;
 
     /** @brief Set containing intance numbers of any OCCs that became active
-     *         while waiting for status objects to be created */
+     *         while waiting for OCC objects to be created */
     std::set<uint8_t> queuedActiveState;
 
     /**
