@@ -232,8 +232,23 @@ BootProgress getBootProgress()
     return bootProgessStage;
 }
 
+// HACK: set to true once an OCC goes active (see hackSetHostRunning).
+// TODO: Remove once host properly reports boot progress state.
+static bool hostRunningOverride = false;
+
+void hackSetHostRunning(bool running)
+{
+    hostRunningOverride = running;
+}
+
 bool isHostRunning()
 {
+    if (hostRunningOverride)
+    {
+        // HACK: force that host is running
+        return true;
+    }
+
     try
     {
         BootProgress bootProgressStatus = getBootProgress();
