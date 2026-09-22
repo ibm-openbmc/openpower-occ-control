@@ -204,11 +204,9 @@ std::string OccDBusSensors::getChassisPath()
     {
         auto paths = utils::getSubtreePaths(std::vector{chassisInterface});
 
-        // For now, support either 1 chassis, or multiple as long as one
-        // of them has the standard name, which we will use.  If this ever
-        // fails, then someone would have to figure out how to identify the
-        // chassis the OCCs are on.
-        if (paths.size() == 1)
+        // chassis0 is the patch pannel (or full system from state management
+        // perspective) and chassis1 is the first node
+        if (paths.size() >= 2)
         {
             lg2::info(
                 "getChassisPath found {NUM} chassis objects with 1st: {PATH}",

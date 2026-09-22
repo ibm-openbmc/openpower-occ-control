@@ -61,8 +61,8 @@ void Manager::findAndCreateObjects()
 
     if (!fs::exists(HOST_ON_FILE))
     {
-        static bool statusObjCreated = false;
-        if (!statusObjCreated)
+        static bool occObjCreated = false;
+        if (!occObjCreated)
         {
             // Create the OCCs based on on the /dev/occX devices
             auto occs = findOCCsInDev();
@@ -83,27 +83,23 @@ void Manager::findAndCreateObjects()
                 }
                 prevOCCSearch = occs;
 
-                lg2::info(
-                    "Manager::findAndCreateObjects(): Waiting for OCCs (currently {QTY})",
-                    "QTY", occs.size());
-
                 discoverTimer->restartOnce(10s);
             }
             else
             {
-                // All OCCs appear to be available, create status objects
+                // All OCCs appear to be available, create OCC objects
 
                 // createObjects requires OCC0 first.
                 std::sort(occs.begin(), occs.end());
 
                 lg2::info(
-                    "Manager::findAndCreateObjects(): Creating {QTY} OCC Status Objects",
+                    "Manager::findAndCreateObjects(): Creating {QTY} occObjects",
                     "QTY", occs.size());
                 for (auto id : occs)
                 {
                     createObjects(std::string(OCC_NAME) + std::to_string(id));
                 }
-                statusObjCreated = true;
+                occObjCreated = true;
                 waitingForAllOccActiveSensors = true;
 
                 // Find/update the processor path associated with each OCC
@@ -114,7 +110,7 @@ void Manager::findAndCreateObjects()
             }
         }
 
-        if (statusObjCreated && waitingForAllOccActiveSensors)
+        if (occObjCreated && waitingForAllOccActiveSensors)
         {
             static bool tracedHostWait = false;
             if (utils::isHostRunning())
@@ -304,9 +300,7 @@ std::vector<int> Manager::findOCCsInDev()
         if (std::regex_search(path, match, expr))
         {
             auto num = std::stoi(match[1].str());
-
-            // /dev numbering starts at 1, ours starts at 0.
-            occs.push_back(num - 1);
+            occs.push_back(num);
         }
     }
 
@@ -336,7 +330,7 @@ void Manager::createObjects(const std::string& occ)
 
     occObjects.emplace_back(std::make_unique<OccObject>(
         event, path.c_str(), *this, pmode,
-        std::bind(std::mem_fn(&Manager::statusCallBack), this,
+        std::bind(std::mem_fn(&Manager::occStatusCallback), this,
                   std::placeholders::_1, std::placeholders::_2),
         // Callback will set flag indicating reset needs to be done
         // instead of immediately issuing a reset via PLDM.
@@ -409,19 +403,21 @@ void Manager::initiateOccRequest(instanceID instance)
     else
     {
         lg2::warning(
-            "initiateOccRequest: Ignoring PM Complex reset request for OCC{INST}, because reset already in process for OCC{RINST}",
+            "initiateOccRequest: Ignoring PM Complex reset request for OCC{INST}, "
+            "because reset already in process for OCC{RINST}",
             "INST", instance, "RINST", resetInstance);
     }
 }
 
-void Manager::statusCallBack(instanceID instance, bool status)
+void Manager::occStatusCallback(instanceID instance, bool status)
 {
     if (status == true)
     {
         if (resetInProgress)
         {
             lg2::info(
-                "statusCallBack: Ignoring OCC{INST} activate because a reset has been initiated due to OCC{RINST}",
+                "occStatusCallback: Ignoring OCC{INST} activate because a reset has "
+                "been initiated due to OCC{RINST}",
                 "INST", instance, "RINST", resetInstance);
             return;
         }
@@ -474,7 +470,8 @@ void Manager::statusCallBack(instanceID instance, bool status)
             {
                 resetRequired = false;
                 lg2::error(
-                    "statusCallBack: clearing resetRequired (since OCC{INST} went active, resetInProgress={RIP})",
+                    "occStatusCallback: clearing resetRequired (since OCC{INST} "
+                    "went active, resetInProgress={RIP})",
                     "INST", instance, "RIP", resetInProgress);
             }
 
@@ -507,7 +504,8 @@ void Manager::statusCallBack(instanceID instance, bool status)
                 // All OCC active sensors are clear (reset should be in
                 // progress)
                 lg2::info(
-                    "statusCallBack: Clearing resetInProgress (activeCount={COUNT}, OCC{INST}, status={STATUS})",
+                    "occStatusCallback: Clearing resetInProgress (activeCount={COUNT}, "
+                    "OCC{INST}, status={STATUS})",
                     "COUNT", activeCount, "INST", instance, "STATUS", status);
                 resetInProgress = false;
                 resetInstance = 255;
@@ -517,7 +515,7 @@ void Manager::statusCallBack(instanceID instance, bool status)
             if (_pollTimer->isEnabled())
             {
                 lg2::info(
-                    "Manager::statusCallBack(): OCCs are not running, stopping poll timer");
+                    "Manager::occStatusCallback(): OCCs are not running, stopping poll timer");
                 _pollTimer->setEnabled(false);
             }
 
@@ -530,7 +528,8 @@ void Manager::statusCallBack(instanceID instance, bool status)
         else if (resetInProgress)
         {
             lg2::info(
-                "statusCallBack: Skipping clear of resetInProgress (activeCount={COUNT}, OCC{INST}, status={STATUS})",
+                "occStatusCallback: Skipping clear of resetInProgress (activeCount={COUNT}, "
+                "OCC{INST}, status={STATUS})",
                 "COUNT", activeCount, "INST", instance, "STATUS", status);
         }
         // Clear OCC sensors
@@ -589,7 +588,8 @@ bool Manager::updateOCCActive(instanceID instance, bool status)
         if (!hostRunning && (status == true))
         {
             lg2::warning(
-                "updateOCCActive: Host is not running yet (OCC{INST} active={STAT}), clearing sensor received",
+                "updateOCCActive: Host is not running yet (OCC{INST} active={STAT}), "
+                "clearing sensor received",
                 "INST", instance, "STAT", status);
             (*obj)->setPldmSensorReceived(false);
             if (!waitingForAllOccActiveSensors)
@@ -612,7 +612,7 @@ bool Manager::updateOCCActive(instanceID instance, bool status)
         if (hostRunning)
         {
             lg2::warning(
-                "updateOCCActive: No status object to update for OCC{INST} (active={STAT})",
+                "updateOCCActive: No occObject to update for OCC{INST} (active={STAT})",
                 "INST", instance, "STAT", status);
         }
         else
@@ -620,7 +620,8 @@ bool Manager::updateOCCActive(instanceID instance, bool status)
             if (status == true)
             {
                 lg2::warning(
-                    "updateOCCActive: No status objects and Host is not running yet (OCC{INST} active={STAT})",
+                    "updateOCCActive: No occObjects and Host is not running yet (OCC{INST} "
+                    "active={STAT})",
                     "INST", instance, "STAT", status);
             }
         }

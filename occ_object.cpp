@@ -107,7 +107,9 @@ bool OccObject::occActive(bool value)
                 this->managerCallBack(instance, value);
             }
 
-#ifndef ENABLE_APP_POLL_SUPPORT
+#ifdef ENABLE_APP_POLL_SUPPORT
+            Base::Status::occActive(value);
+#else
             // Stop watching for errors
             removeErrorWatch();
 

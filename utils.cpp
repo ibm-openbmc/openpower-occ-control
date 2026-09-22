@@ -198,7 +198,11 @@ std::string getStateValue(const std::string& intf, const std::string& objPath,
     }
     catch (const sdbusplus::exception_t& e)
     {
-        lg2::error("D-Bus call exception, OBJPATH({PATH}), "
+        // Debug only — ResourceNotFound is expected while the host state
+        // object hasn't been published yet (e.g. early boot).  The caller
+        // (isHostRunning) treats any exception as "host not running" and
+        // already logs a single info-level "Waiting for host to start".
+        lg2::debug("D-Bus call exception, OBJPATH({PATH}), "
                    "INTERFACE({INTF}), PROPERTY({PROP}) EXCEPTION({ERR})",
                    "PATH", objPath, "INTF", intf, "PROP", state, "ERR",
                    e.what());
