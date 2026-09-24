@@ -134,14 +134,14 @@ class Manager
      */
     void findAndCreateObjects();
 
-    /** @brief Callback that responds to cpu creation in the inventory -
-     *         by creating the needed objects.
+    /** @brief Returns the OCC D-Bus path segment for a given kernel device
+     *         number, e.g. device 0 -> "chassis1/occ0".
      *
-     *  @param[in] msg - bus message
+     *  @param[in] deviceNum - kernel OCC device number (from /dev/occN)
      *
-     *  @returns 0 to indicate success
+     *  @returns relative path string "chassis<N+1>/occ0"
      */
-    int cpuCreated(sdbusplus::message_t& msg);
+    std::string getOccPath(int deviceNum);
 
     /** @brief Create child OCC objects.
      *
@@ -167,9 +167,6 @@ class Manager
     /** @brief Initiate the request to reset the PM Complex (PLDM -> HBRT) */
     void initiateOccRequest(instanceID instance);
 
-    /** @brief Sends a Heartbeat command to host control command handler */
-    void sendHeartBeat();
-
     /** @brief reference to sd_event wrapped in unique_ptr */
     EventPtr& event;
 
@@ -184,9 +181,6 @@ class Manager
 
     /** @brief Power mode monitor and notification object */
     std::unique_ptr<open_power::occ::powermode::PowerMode> pmode;
-
-    /** @brief sbdbusplus match objects */
-    std::vector<sdbusplus::match> cpuMatches;
 
     /** @brief Number of OCCs that are bound */
     uint8_t activeCount = 0;

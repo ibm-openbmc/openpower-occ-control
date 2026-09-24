@@ -204,8 +204,8 @@ std::string OccDBusSensors::getChassisPath()
     {
         auto paths = utils::getSubtreePaths(std::vector{chassisInterface});
 
-        // chassis0 is the patch pannel (or full system from state management
-        // perspective) and chassis1 is the first node
+        // chassis0 is the patch panel (or full system from state management
+        // perspective) and chassis1 is the first chassis
         if (paths.size() >= 2)
         {
             lg2::info(

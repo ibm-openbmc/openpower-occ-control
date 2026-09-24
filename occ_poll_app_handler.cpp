@@ -38,6 +38,7 @@ CmdStatus OccPollAppHandler::sendOccPollCmd()
 
     OccCommand occCmd(occInstanceID,
                       (fs::path(OCC_CONTROL_ROOT) /
+                       (std::string(CHASSIS_NAME) + std::to_string(1)) /
                        (std::string(OCC_NAME) + std::to_string(occInstanceID)))
                           .c_str());
 
@@ -78,6 +79,11 @@ bool OccPollAppHandler::pollReadStateStatus(unsigned int& state,
 
 void OccPollAppHandler::HandlePollAction()
 {
+    if (!occObject.occActive())
+    {
+        return;
+    }
+
     const CmdStatus cmdStatus = sendOccPollCmd();
 
     if (cmdStatus != CmdStatus::SUCCESS)

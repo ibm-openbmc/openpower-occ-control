@@ -17,8 +17,8 @@ conf_data = configuration_data()
 conf_data.set_quoted('OCC_CONTROL_BUSNAME', 'org.open_power.OCC.Control')
 conf_data.set_quoted('OCC_CONTROL_ROOT', '/org/open_power/control')
 conf_data.set_quoted('OCC_SENSORS_ROOT', '/xyz/openbmc_project/sensors')
-conf_data.set_quoted('CPU_NAME', 'cpu')
 conf_data.set_quoted('OCC_NAME', 'occ')
+conf_data.set_quoted('CHASSIS_NAME', 'chassis')
 conf_data.set_quoted('OCC_MASTER_NAME', 'occ-hwmon.1')
 conf_data.set_quoted('OCC_DEV_PATH', '/dev/occ')
 conf_data.set_quoted(
@@ -32,6 +32,7 @@ conf_data.set_quoted(
 conf_data.set_quoted('OP_DUMP_OBJ_PATH', get_option('op_dump_obj_path'))
 
 conf_data.set('MAX_CPUS', get_option('max-cpus'))
+conf_data.set('MAX_CHASSIS', get_option('max-chassis'))
 conf_data.set('PS_DERATING_FACTOR', get_option('ps-derating-factor'))
 
 conf_data.set_quoted('OCC_HWMON_PATH', '/sys/bus/platform/drivers/occ-hwmon/')

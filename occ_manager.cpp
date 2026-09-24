@@ -97,7 +97,7 @@ void Manager::findAndCreateObjects()
                     "QTY", occs.size());
                 for (auto id : occs)
                 {
-                    createObjects(std::string(OCC_NAME) + std::to_string(id));
+                    createObjects(getOccPath(id));
                 }
                 occObjCreated = true;
                 waitingForAllOccActiveSensors = true;
@@ -307,26 +307,18 @@ std::vector<int> Manager::findOCCsInDev()
     return occs;
 }
 
-int Manager::cpuCreated(sdbusplus::message_t& msg)
+// Convert a kernel OCC device number to the D-Bus path segment used under
+// OCC_CONTROL_ROOT, e.g. device 0 -> "chassis1/occ0".
+std::string Manager::getOccPath(int deviceNum)
 {
-    namespace fs = std::filesystem;
-
-    auto o = msg.unpack<sdbusplus::object_path>();
-
-    fs::path cpuPath(std::string(std::move(o)));
-
-    auto name = cpuPath.filename().string();
-    auto index = name.find(CPU_NAME);
-    name.replace(index, std::strlen(CPU_NAME), OCC_NAME);
-
-    createObjects(name);
-
-    return 0;
+    auto chassisNum = deviceNum + 1;
+    return std::string(CHASSIS_NAME) + std::to_string(chassisNum) + "/" +
+           OCC_NAME + "0";
 }
 
-void Manager::createObjects(const std::string& occ)
+void Manager::createObjects(const std::string& occPath)
 {
-    auto path = fs::path(OCC_CONTROL_ROOT) / occ;
+    auto path = fs::path(OCC_CONTROL_ROOT) / occPath;
 
     occObjects.emplace_back(std::make_unique<OccObject>(
         event, path.c_str(), *this, pmode,
@@ -368,6 +360,11 @@ void Manager::resetOccRequest(instanceID instance)
         lg2::error(
             "resetOccRequest: PM Complex reset was requested due to OCC{INST}",
             "INST", instance);
+
+        if (activeCount == 0)
+        {
+            initiateOccRequest(instance);
+        }
     }
     else if (instance != resetInstance)
     {

@@ -728,7 +728,6 @@ void Interface::sendPldm(const std::vector<uint8_t>& request,
                       "TO", timeout.count());
         }
         pldmResponseReceived = false;
-        pldmResponseTimeout = false;
         pldmResponseOcc = instance;
         auto pldmRc = pldm_transport_send_msg(pldmTransport, pldmTID,
                                               request.data(), request.size());
@@ -821,7 +820,6 @@ void Interface::pldmRspExpired()
                 "response to msg:{MSG} for OCC{INST}",
                 "MSG", msgType, "INST", pldmResponseOcc);
         }
-        pldmResponseTimeout = true;
         if (pldmFd)
         {
             pldmClose();

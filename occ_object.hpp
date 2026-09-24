@@ -111,6 +111,7 @@ class OccObject : public Interface
             std::bind(std::mem_fn(&OccObject::hostControlEvent), this,
                       std::placeholders::_1)),
         occCmd(instance, (fs::path(OCC_CONTROL_ROOT) /
+                          (std::string(CHASSIS_NAME) + std::to_string(1)) /
                           (std::string(OCC_NAME) + std::to_string(instance)))
                              .c_str()),
         sdpEvent(sdeventplus::Event::get_default()),

@@ -108,5 +108,10 @@ std::vector<std::string> hex_dump(const std::vector<std::uint8_t>& data,
                                   const unsigned int data_len = 0);
 
 } // namespace utils
+
+/** @brief Chassis identifier type — 1-based index (chassis 1–8; chassis 0 is
+ *  reserved for the patch panel). */
+using chassisID = uint8_t;
+
 } // namespace occ
 } // namespace open_power

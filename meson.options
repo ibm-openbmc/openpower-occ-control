@@ -10,6 +10,15 @@ option(
 )
 
 option(
+    'max-chassis',
+    type: 'integer',
+    min: 1,
+    max: 12,
+    description: 'Maximum number of chassis',
+    value: 8,
+)
+
+option(
     'ps-derating-factor',
     type: 'integer',
     min: 0,
