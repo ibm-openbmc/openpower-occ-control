@@ -71,15 +71,6 @@ class PassThrough : public Iface
     /** @brief OCC PowerMode object */
     std::unique_ptr<open_power::occ::powermode::PowerMode>& pmode;
 
-    /** @brief OCC device path
-     *  For now, here is the hard-coded mapping until
-     *  the udev rule is in.
-     *  occ0 --> /dev/occ1
-     *  occ1 --> /dev/occ2
-     *  ...
-     */
-    std::string devicePath;
-
     /** @brief OCC instance number */
     int occInstance;
 

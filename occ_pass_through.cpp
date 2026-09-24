@@ -25,7 +25,6 @@ PassThrough::PassThrough(
     const char* path,
     std::unique_ptr<open_power::occ::powermode::PowerMode>& powerModeRef) :
     Iface(utils::getBus(), path), path(path), pmode(powerModeRef),
-    devicePath(OCC_DEV_PATH + std::to_string((this->path.back() - '0') + 1)),
     occInstance(this->path.back() - '0'),
     activeStatusSignal(
         utils::getBus(),

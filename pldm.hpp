@@ -296,10 +296,6 @@ class Interface
      */
     bool pldmResponseReceived = false;
 
-    /** @brief The response for the PLDM request has timed out.
-     */
-    bool pldmResponseTimeout = false;
-
     /** @brief The instance ID for the OCC/HRESET request */
     static open_power::occ::instanceID resetInstance;
 

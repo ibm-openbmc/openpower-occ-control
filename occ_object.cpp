@@ -101,12 +101,6 @@ bool OccObject::occActive(bool value)
                 safeStateDelayTimer.setEnabled(false);
             }
 
-            // Call into Manager to let know that we will unbind.
-            if (this->managerCallBack)
-            {
-                this->managerCallBack(instance, value);
-            }
-
 #ifdef ENABLE_APP_POLL_SUPPORT
             Base::Status::occActive(value);
 #else
@@ -116,6 +110,12 @@ bool OccObject::occActive(bool value)
             // Set the device inactive
             device.setActive(false);
 #endif
+
+            // Call into Manager to let know that we will unbind.
+            if (this->managerCallBack)
+            {
+                this->managerCallBack(instance, value);
+            }
 
             // Clear throttles (OCC not active after disabling device)
             updateThrottle(false, THROTTLED_ALL);
@@ -168,7 +168,7 @@ bool OccObject::occActive(bool value)
         device.setActive(false);
     }
 #endif
-    return Base::Status::occActive(value);
+    return this->occActive();
 }
 
 // Callback handler when a device error is reported.
@@ -243,7 +243,10 @@ void OccObject::PollHandler()
 
     occReadStateNow();
 
-    MyPollHandler->HandlePollAction();
+    if (occActive())
+    {
+        MyPollHandler->HandlePollAction();
+    }
 }
 
 // Special processing that needs to happen once the OCCs change to ACTIVE state
