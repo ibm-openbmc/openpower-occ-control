@@ -165,6 +165,18 @@ executable(
     install_dir: get_option('bindir'),
 )
 
+occctl_sources = ['occctl.cpp', 'utils.cpp']
+
+executable(
+    'occctl',
+    occctl_sources,
+    include_directories: '.',
+    implicit_include_directories: true,
+    dependencies: deps,
+    install: true,
+    install_dir: get_option('bindir'),
+)
+
 if get_option('tests').allowed()
     subdir('test')
 endif

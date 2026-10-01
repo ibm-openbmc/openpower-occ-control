@@ -23,7 +23,7 @@ using PropertyValue =
     std::variant<uint32_t, bool, double, std::string, std::vector<std::string>>;
 
 /** @brief Get the bus connection. */
-static auto& getBus()
+inline auto& getBus()
 {
     static auto bus = sdbusplus::bus::new_default();
     return bus;
