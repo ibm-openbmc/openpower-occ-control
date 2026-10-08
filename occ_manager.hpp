@@ -1,7 +1,7 @@
 #pragma once
 
+#include "occ_chassis.hpp"
 #include "occ_object.hpp"
-#include "occ_pass_through.hpp"
 #include "pldm.hpp"
 
 #ifdef PHAL_SUPPORT
@@ -19,6 +19,7 @@
 
 #include <cstring>
 #include <functional>
+#include <map>
 #include <vector>
 
 namespace sdbusRule = sdbusplus::match_rules;
@@ -90,18 +91,12 @@ class Manager
 
     void createPldmHandle();
 
-    /** @brief Return the number of bound OCCs */
-    inline auto getNumOCCs() const
-    {
-        return activeCount;
-    }
-
     /** @brief Called by a Device to report that the SBE timed out
      *         and appropriate action should be taken
      *
-     * @param[in] instance - the OCC instance id
+     * @param[in] deviceInstance - the device instance id (sbefifo instance)
      */
-    void sbeTimeout(unsigned int instance);
+    void sbeTimeout(unsigned int deviceInstance);
 
     /** @brief Return the latest ambient and altitude readings
      *
@@ -134,56 +129,45 @@ class Manager
      */
     void findAndCreateObjects();
 
-    /** @brief Returns the OCC D-Bus path segment for a given kernel device
-     *         number, e.g. device 0 -> "chassis1/occ0".
-     *
-     *  @param[in] deviceNum - kernel OCC device number (from /dev/occN)
-     *
-     *  @returns relative path string "chassis<N+1>/occ0"
-     */
-    std::string getOccPath(int deviceNum);
-
     /** @brief Create child OCC objects.
      *
-     *  @param[in] occ - the occ name, such as occ0.
+     *  @param[in] deviceNum - kernel OCC device number (from /dev/occN)
      */
-    void createObjects(const std::string& occ);
+    void createObjects(int deviceNum);
 
-    /** @brief Callback handler invoked by occObject when the OccActive
-     *         property is changed. This is needed to make sure that the
-     *         error detection is started only after all the OCCs are bound.
-     *         Similarly, when one of the OCC gets its OccActive property
-     *         un-set, then the OCC error detection needs to be stopped on
-     *         all the OCCs
+    /** @brief Callback handler invoked by ChassisObject when its
+     *         consolidated OccActive state has changed.
      *
-     *  @param[in] status - OccActive status
+     *  @param[in] cid    - 1-based chassisID of the reporting chassis
+     *  @param[in] status - true when chassis is fully active, false otherwise
      */
-    void occStatusCallback(instanceID instance, bool status);
+    void chassisStatusCallback(chassisID cid, bool status);
 
     /** @brief Set flag that a PM Complex reset is needed (to be initiated
-     * later) */
-    void resetOccRequest(instanceID instance);
+     *         later).
+     *
+     *  @param[in] cid - 1-based chassisID requesting the reset
+     */
+    void resetOccRequest(chassisID cid);
 
-    /** @brief Initiate the request to reset the PM Complex (PLDM -> HBRT) */
-    void initiateOccRequest(instanceID instance);
+    /** @brief Trigger a PM Complex reset via PLDM */
+    void triggerOccReset();
 
     /** @brief reference to sd_event wrapped in unique_ptr */
     EventPtr& event;
 
-    /** @brief OCC pass-through objects */
-    std::vector<std::unique_ptr<PassThrough>> passThroughObjects;
+    /** @brief Per-chassis container: maps 1-based chassisID to ChassisObject.
+     *         Each ChassisObject owns its OccObject(s) and PassThrough(s). */
+    std::map<chassisID, std::unique_ptr<ChassisObject>> chassisObjects;
 
-    /** @brief OCC objects */
-    std::vector<std::unique_ptr<OccObject>> occObjects;
+    /** @brief Number of chassis discovered (replaces occObjects.size()) */
+    uint8_t numChassis = 0;
 
     /** @brief Power cap monitor and occ notification object */
     std::unique_ptr<open_power::occ::powercap::PowerCap> pcap;
 
     /** @brief Power mode monitor and notification object */
     std::unique_ptr<open_power::occ::powermode::PowerMode> pmode;
-
-    /** @brief Number of OCCs that are bound */
-    uint8_t activeCount = 0;
 
     /** @brief Number of seconds between poll commands */
     uint8_t pollInterval;
@@ -218,8 +202,12 @@ class Manager
 
     /** @brief Flag to indicate that a PM complex reset needs to happen */
     bool resetRequired = false;
-    /** @brief Instance number of the OCC/processor that triggered the reset */
-    uint8_t resetInstance = 255;
+    /** @brief 1-based chassisID of the chassis requesting a PM Complex reset
+     *         (0 = none pending) */
+    chassisID chassisRequestingReset = 0;
+    /** @brief OCC instance number of the OCC that triggered the reset
+     *         (used for pldmHandle->resetOCC(); 0xFF = none pending) */
+    instanceID instanceRequestingReset = 0xFF;
     /** @brief Set when a PM complex reset has been issued (to prevent multiple
      * requests) */
     bool resetInProgress = false;

@@ -1,10 +1,16 @@
+#include "occ_poll_kernel_handler.hpp"
+
 #include "occ_command.hpp"
 #include "occ_dbus.hpp"
+#include "occ_device.hpp"
 #include "occ_object.hpp"
 #include "occ_poll_handler.hpp"
 
 #include <phosphor-logging/elog-errors.hpp>
 #include <phosphor-logging/lg2.hpp>
+
+#include <cmath>
+#include <fstream>
 
 namespace open_power
 {

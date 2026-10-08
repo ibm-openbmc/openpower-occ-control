@@ -275,7 +275,7 @@ class Interface
     int pldmFd = -1;
 
     /** pldm transport instance  */
-    struct pldm_transport* pldmTransport = NULL;
+    struct pldm_transport* pldmTransport = nullptr;
 
     static enum pldm_msg_type msgType;
 

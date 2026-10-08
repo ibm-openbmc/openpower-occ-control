@@ -36,7 +36,7 @@ if __name__ == "__main__":
         ifile = yaml.safe_load(fd)
 
         # Render the mako template
-        template = os.path.join(script_dir, "occ_sensor.mako.hpp")
+        template = os.path.join(script_dir, "occ_sensor.hpp.mako")
         t = Template(filename=template)
         with open("occ_sensor.hpp", "w") as fd:
             fd.write(t.render(occDict=ifile))

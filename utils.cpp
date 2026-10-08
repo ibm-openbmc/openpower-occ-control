@@ -234,12 +234,19 @@ BootProgress getBootProgress()
 
 bool isHostRunning()
 {
-    BootProgress bootProgressStatus = getBootProgress();
-    if ((bootProgressStatus == BootProgress::SystemInitComplete) ||
-        (bootProgressStatus == BootProgress::SystemSetup) ||
-        (bootProgressStatus == BootProgress::OSRunning))
+    try
     {
-        return true;
+        BootProgress bootProgressStatus = getBootProgress();
+        if ((bootProgressStatus == BootProgress::SystemInitComplete) ||
+            (bootProgressStatus == BootProgress::SystemSetup) ||
+            (bootProgressStatus == BootProgress::OSRunning))
+        {
+            return true;
+        }
+    }
+    catch (const std::runtime_error&)
+    {
+        // Host state object not available yet — host is not running
     }
     return false;
 }

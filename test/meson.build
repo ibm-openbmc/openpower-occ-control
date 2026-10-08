@@ -20,6 +20,7 @@ if not gtest_dep.found() or not gmock_dep.found()
 endif
 
 test_sources = [
+    '../occ_chassis.cpp',
     '../occ_pass_through.cpp',
     '../occ_manager.cpp',
     '../occ_object.cpp',
@@ -99,6 +100,22 @@ test(
     ),
     workdir: meson.current_source_dir(),
     args: ['--gtest_print_time=0'],
+    verbose: true,
+)
+
+occtrace_test_sources = ['../occctl.cpp', '../utils.cpp']
+
+test(
+    'occtrace_test.cpp',
+    executable(
+        'occtrace_test_cpp',
+        'occtrace_test.cpp',
+        occtrace_test_sources,
+        cpp_args: ['-DUNIT_TEST'],
+        include_directories: '..',
+        dependencies: [gtest_dep, gmock_dep, pthread_dep, deps],
+    ),
+    workdir: meson.current_source_dir(),
     verbose: true,
 )
 

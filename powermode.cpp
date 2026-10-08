@@ -159,8 +159,7 @@ void PowerMode::setMasterOcc(const std::string& masterOccPath)
                occInstance, "PATH", path);
     if (!occCmd)
     {
-        occCmd = std::make_unique<open_power::occ::OccCommand>(
-            occInstance, path.c_str());
+        occCmd = std::make_unique<open_power::occ::OccCommand>(path.c_str());
     }
     masterOccSet = true;
 };

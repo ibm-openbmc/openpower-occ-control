@@ -92,7 +92,7 @@ std::string getServiceUsingSubTree(const std::string& interface,
 /**
  * @brief Get status of the host
  *
- * @return true is the host is running, else false
+ * @return true if the host is running, else false
  */
 bool isHostRunning();
 
@@ -112,6 +112,10 @@ std::vector<std::string> hex_dump(const std::vector<std::uint8_t>& data,
 /** @brief Chassis identifier type — 1-based index (chassis 1–8; chassis 0 is
  *  reserved for the patch panel). */
 using chassisID = uint8_t;
+
+/** @brief Default chassis number for single-chassis systems or call sites
+ *  that do not yet carry explicit chassis context. */
+constexpr chassisID DEFAULT_CHASSIS = 1;
 
 } // namespace occ
 } // namespace open_power

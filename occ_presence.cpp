@@ -1,7 +1,5 @@
 #include "occ_presence.hpp"
 
-#include "occ_manager.hpp"
-
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -44,10 +42,10 @@ void Presence::analyzeEvent()
 
     // Let stoi determine the base
     auto occsPresent = std::stoi(data, nullptr, 0);
-    if (manager.getNumOCCs() != occsPresent)
+    if (occCount != static_cast<size_t>(occsPresent))
     {
         lg2::error("OCC presence mismatch - BMC: {BNUM}, OCC: {ONUM}", "BNUM",
-                   manager.getNumOCCs(), "ONUM", occsPresent);
+                   occCount, "ONUM", occsPresent);
         if (callBack)
         {
             callBack(occsPresent);
