@@ -26,6 +26,7 @@
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
+#include "occ_device.hpp"
 #include "occ_object.hpp"
 
 namespace open_power

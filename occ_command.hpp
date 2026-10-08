@@ -103,10 +103,10 @@ class OccCommand
 
     /** @brief Ctor to set up which OCC the command will go to
      *
-     *  @param[in] instance - OCC instance
-     *  @param[in] path - Path to attach at
+     *  @param[in] path - D-Bus object path of the OCC
+     *                    (e.g. /org/open_power/control/chassis1/occ0)
      */
-    OccCommand(uint8_t instance, const char* path);
+    OccCommand(const char* path);
 
     /** @brief Dtor to clean up and close device */
     ~OccCommand()
@@ -125,11 +125,11 @@ class OccCommand
                    std::vector<std::uint8_t>& response);
 
   private:
-    /** @brief Instance number of the target OCC */
-    uint8_t occInstance;
-
     /** @brief OCC path on the bus */
     std::string path;
+
+    /** @brief Last two path segments for traces (e.g. chassis1/occ0) */
+    std::string occId;
 
     /** @brief OCC device path
      *  For now, here is the hard-coded mapping until

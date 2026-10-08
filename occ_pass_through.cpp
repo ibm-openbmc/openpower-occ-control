@@ -31,7 +31,7 @@ PassThrough::PassThrough(
         sdbusRule::propertiesChanged(path, "org.open_power.OCC.Status"),
         std::bind(std::mem_fn(&PassThrough::activeStatusEvent), this,
                   std::placeholders::_1)),
-    occCmd(occInstance, path)
+    occCmd(path)
 {
     // Nothing to do.
 }

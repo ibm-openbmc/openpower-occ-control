@@ -66,7 +66,7 @@ class Device
                 std::bind(std::mem_fn(&Device::timeoutCallback), this,
                           std::placeholders::_1)),
         ffdc(event, path / "ffdc", instance),
-        presence(event, path / "occs_present", manager,
+        presence(event, path / "occs_present", 1u,
                  std::bind(std::mem_fn(&Device::errorCallback), this,
                            std::placeholders::_1)),
         throttleProcTemp(

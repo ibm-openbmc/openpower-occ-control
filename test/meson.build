@@ -20,6 +20,7 @@ if not gtest_dep.found() or not gmock_dep.found()
 endif
 
 test_sources = [
+    '../occ_chassis.cpp',
     '../occ_pass_through.cpp',
     '../occ_manager.cpp',
     '../occ_object.cpp',

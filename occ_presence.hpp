@@ -1,12 +1,11 @@
 #pragma once
 
 #include "occ_errors.hpp"
+
 namespace open_power
 {
 namespace occ
 {
-
-class Manager;
 
 /** @class Presence
  *  @brief Monitors the number of OCCs present
@@ -27,16 +26,16 @@ class Presence : public Error
      *  @param[in] mgr      - OCC manager instance
      *  @param[in] callBack - Optional function callback on error condition
      */
-    Presence(EventPtr& event, const fs::path& file, const Manager& mgr,
+    Presence(EventPtr& event, const fs::path& file, size_t numOccs,
              std::function<void(int)> callBack = nullptr) :
-        Error(event, file, callBack), manager(mgr)
+        Error(event, file, callBack), occCount(numOccs)
     {
         // Nothing to do here.
     }
 
   private:
-    /** Store the manager instance to enable getting number of OCCs */
-    const Manager& manager;
+    /** Number of OCCs on this chassis, for presence mismatch detection */
+    const size_t occCount;
 
     /** @brief When the error event is received, analyzes it
      *         and makes a callback to error handler if the
