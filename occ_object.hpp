@@ -79,6 +79,7 @@ class OccObject : public Interface
      *  @param[in] event    - sd_event unique pointer reference
      *  @param[in] path     - DBus object path
      *  @param[in] manager  - OCC manager instance
+     *  @param[in] chassisNum - chassis identifier for this OCC
      *  @param[in] callBack - Callback handler to invoke during
      *                        property change
      *  @param[in] resetCallBack - callback handler to invoke for resetting the
@@ -88,12 +89,13 @@ class OccObject : public Interface
     OccObject([[maybe_unused]] EventPtr& event, const char* path,
               Manager& managerRef,
               std::unique_ptr<powermode::PowerMode>& powerModeRef,
-              std::function<void(instanceID, bool)> callBack = nullptr,
-              std::function<void(instanceID)> resetCallBack = nullptr) :
+              chassisID chassisNum = DEFAULT_CHASSIS,
+              std::function<void(chassisID, bool)> callBack = nullptr,
+              std::function<void(chassisID)> resetCallBack = nullptr) :
         Interface(utils::getBus(), getDbusPath(path).c_str(),
                   Interface::action::defer_emit),
-        path(path), managerCallBack(callBack), instance(getInstance(path)),
-        manager(managerRef), pmode(powerModeRef),
+        path(path), chassisCallback(callBack), instance(getInstance(path)),
+        chassis(chassisNum), manager(managerRef), pmode(powerModeRef),
 #ifndef ENABLE_APP_POLL_SUPPORT
         device(event,
                fs::path(DEV_PATH) /
@@ -110,10 +112,10 @@ class OccObject : public Interface
                                        Control::Host::Command::OCCReset)),
             std::bind(std::mem_fn(&OccObject::hostControlEvent), this,
                       std::placeholders::_1)),
-        occCmd(instance, (fs::path(OCC_CONTROL_ROOT) /
-                          (std::string(CHASSIS_NAME) + std::to_string(1)) /
-                          (std::string(OCC_NAME) + std::to_string(instance)))
-                             .c_str()),
+        occCmd((fs::path(OCC_CONTROL_ROOT) /
+                (std::string(CHASSIS_NAME) + std::to_string(chassisNum)) /
+                (std::string(OCC_NAME) + std::to_string(instance)))
+                   .c_str()),
         sdpEvent(sdeventplus::Event::get_default()),
         safeStateDelayTimer(
             sdeventplus::utility::Timer<sdeventplus::ClockId::Monotonic>(
@@ -164,6 +166,12 @@ class OccObject : public Interface
     unsigned int getOccInstanceID()
     {
         return instance;
+    }
+
+    /** @brief Gets the OCC dbus object path */
+    const std::string& getPath() const
+    {
+        return path;
     }
 
     /** @brief Is this OCC the master OCC */
@@ -265,6 +273,21 @@ class OccObject : public Interface
      */
     void setSensorValueToNonFunctional() const;
 
+    /** @brief Send a raw command to this OCC and return the response.
+     *
+     *  Delegates to occCmd.send(). Used by ChassisObject::collectDumpData()
+     *  to collect poll and WOF debug data without exposing occCmd directly.
+     *
+     *  @param[in]  command  - command bytes to send
+     *  @param[out] response - response bytes received
+     *  @return CmdStatus result
+     */
+    CmdStatus sendCmd(const std::vector<std::uint8_t>& command,
+                      std::vector<std::uint8_t>& response)
+    {
+        return occCmd.send(command, response);
+    }
+
     /** @brief Store the existing OCC sensors on D-BUS */
     std::map<std::string, uint32_t> existingSensors;
 
@@ -275,13 +298,16 @@ class OccObject : public Interface
     /** @brief Processor path associated with this OCC */
     std::string procPath;
 
-    /** @brief Callback handler to be invoked during property change.
-     *         This is a handler in Manager class
+    /** @brief Callback into the owning ChassisObject when occActive changes.
+     *  Bound to ChassisObject::onOccActiveChanged at construction time.
      */
-    std::function<void(instanceID, bool)> managerCallBack;
+    std::function<void(chassisID, bool)> chassisCallback;
 
-    /** @brief OCC instance number. Ex, 0,1, etc */
+    /** @brief OCC instance number within the chassis */
     unsigned int instance;
+
+    /** @brief chassis identifier for this OCC */
+    chassisID chassis;
 
     /** @brief The last state read from the OCC */
     unsigned int lastState = 0;
@@ -300,6 +326,11 @@ class OccObject : public Interface
 
     /** @brief The Trigger to indicate OCC sensors are valid or not. */
     bool sensorsValid = false;
+
+    /** @brief True once PCAP bounds have been read from the first successful
+     *         poll after the OCC becomes active. Reset when the OCC goes
+     *         inactive so bounds are re-read on the next activation. */
+    bool pcapBoundsUpdated = false;
 
     /** @brief OCC instance to Sensor definitions mapping */
     static const std::map<instanceID, sensorDefs> sensorMap;
@@ -351,6 +382,16 @@ class OccObject : public Interface
      */
     void resetOCC();
 
+    /** @brief Handles all activation work when occActive transitions to true.
+     *  Called by occActive(bool). Returns the new occActive state.
+     */
+    bool occActivated();
+
+    /** @brief Handles all deactivation work when occActive transitions to
+     * false. Called by occActive(bool).
+     */
+    void occDeactivated();
+
     /** @brief Determines the instance ID by specified object path.
      *  @param[in]  path  Estimated OCC Dbus object path
      *  @return  Instance number
@@ -400,7 +441,7 @@ class OccObject : public Interface
         return estimatedPath;
     }
 
-    std::function<void(instanceID)> resetCallBack = nullptr;
+    std::function<void(chassisID)> resetCallBack = nullptr;
 
     /** @brief Current throttle reason(s) for this processor */
     uint8_t throttleCause = THROTTLED_NONE;

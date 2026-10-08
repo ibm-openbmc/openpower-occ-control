@@ -23,6 +23,96 @@ using ThrottleObj =
     sdbusplus::xyz::openbmc_project::Control::Power::server::Throttle;
 using ThrottleReason = ThrottleObj::ThrottleReasons;
 
+bool OccObject::occActivated()
+{
+    // Clear prior throttle reason (before setting device active)
+    updateThrottle(false, THROTTLED_ALL);
+
+    // Reset last OCC state
+    lastState = 0;
+
+#ifndef ENABLE_APP_POLL_SUPPORT
+    // Set the device active
+    device.setActive(true);
+
+    // Start watching for errors (throttles, etc)
+    try
+    {
+        addErrorWatch();
+    }
+    catch (const OpenFailure& e)
+    {
+        // Failed to add watch for throttle events, request reset to try
+        // to recover comm
+        lg2::error(
+            "OccObject::occActivated: Unable to add error watch(s) for OCC{INST} watch: {ERROR}",
+            "INST", instance, "ERROR", e.what());
+        deviceError(Error::Descriptor(OCC_COMM_ERROR_PATH));
+        return Base::Status::occActive(false);
+    }
+#endif
+
+    // Update the OCC active sensor
+    Base::Status::occActive(true);
+
+    // Notify the owning ChassisObject that this OCC is now active.
+    // ChassisObject will aggregate all-OCCs-active state and forward
+    // to the Manager when the chassis is fully up.
+    if (this->chassisCallback)
+    {
+        this->chassisCallback(chassis, true);
+    }
+
+    return this->occActive();
+}
+
+void OccObject::occDeactivated()
+{
+    pcapBoundsUpdated = false;
+    pldmSensorStateReceived = false;
+    stateValid = false;
+
+    if (sensorsValid)
+    {
+        sensorsValid = false;
+        // Sensors not supported (update to NaN and not functional)
+        setSensorValueToNaN();
+    }
+
+    if (pmode && isMasterOcc())
+    {
+        // Prevent mode changes
+        pmode->setMasterActive(false);
+    }
+    if (safeStateDelayTimer.isEnabled())
+    {
+        // stop safe delay timer
+        safeStateDelayTimer.setEnabled(false);
+    }
+
+#ifdef ENABLE_APP_POLL_SUPPORT
+    Base::Status::occActive(false);
+#else
+    // Stop watching for errors
+    removeErrorWatch();
+
+    // Set the device inactive
+    device.setActive(false);
+#endif
+
+    // Notify the owning ChassisObject that this OCC is no longer active.
+    if (this->chassisCallback)
+    {
+        this->chassisCallback(chassis, false);
+    }
+
+    // Clear throttles (OCC not active after disabling device)
+    updateThrottle(false, THROTTLED_ALL);
+
+    // CALL into poll_handler to clear any trace poll flags.
+    MyPollHandler->clearOccPollTraceFlags();
+}
+
 // Handles updates to occActive property
 bool OccObject::occActive(bool value)
 {
@@ -32,96 +122,11 @@ bool OccObject::occActive(bool value)
                   instance, "STATE", value);
         if (value)
         {
-            // OCC is active
-            // Clear prior throttle reason (before setting device active)
-            updateThrottle(false, THROTTLED_ALL);
-
-            // Reset last OCC state
-            lastState = 0;
-
-#ifndef ENABLE_APP_POLL_SUPPORT
-            // Set the device active
-            device.setActive(true);
-
-            // Start watching for errors (throttles, etc)
-            try
-            {
-                addErrorWatch();
-            }
-            catch (const OpenFailure& e)
-            {
-                // Failed to add watch for throttle events, request reset to try
-                // to recover comm
-                lg2::error(
-                    "OccObject::occActive: Unable to add error watch(s) for OCC{INST} watch: {ERROR}",
-                    "INST", instance, "ERROR", e.what());
-                deviceError(Error::Descriptor(OCC_COMM_ERROR_PATH));
-                return Base::Status::occActive(false);
-            }
-#endif
-
-            // Update the OCC active sensor
-            Base::Status::occActive(value);
-
-            if (isMasterOcc())
-            {
-                // Update powercap bounds from OCC
-                uint32_t capSoftMin = 0, capHardMin = 0, capMax = 0;
-                bool parmsChanged = MyPollHandler->pollReadPcapBounds(
-                    capSoftMin, capHardMin, capMax);
-
-                manager.updatePcapBounds(parmsChanged, capSoftMin, capHardMin,
-                                         capMax);
-            }
-
-            // Call into Manager to let know that we have bound
-            if (this->managerCallBack)
-            {
-                this->managerCallBack(instance, value);
-            }
+            return occActivated();
         }
         else
         {
-            // OCC is no longer active
-            if (sensorsValid)
-            {
-                sensorsValid = false;
-                // Sensors not supported (update to NaN and not functional)
-                setSensorValueToNaN();
-            }
-
-            if (pmode && isMasterOcc())
-            {
-                // Prevent mode changes
-                pmode->setMasterActive(false);
-            }
-            if (safeStateDelayTimer.isEnabled())
-            {
-                // stop safe delay timer
-                safeStateDelayTimer.setEnabled(false);
-            }
-
-#ifdef ENABLE_APP_POLL_SUPPORT
-            Base::Status::occActive(value);
-#else
-            // Stop watching for errors
-            removeErrorWatch();
-
-            // Set the device inactive
-            device.setActive(false);
-#endif
-
-            // Call into Manager to let know that we will unbind.
-            if (this->managerCallBack)
-            {
-                this->managerCallBack(instance, value);
-            }
-
-            // Clear throttles (OCC not active after disabling device)
-            updateThrottle(false, THROTTLED_ALL);
-
-            // CALL into poll_handler to clear any trace poll flags.
-            MyPollHandler->clearOccPollTraceFlags();
+            occDeactivated();
         }
     }
 #ifndef ENABLE_APP_POLL_SUPPORT
@@ -201,7 +206,7 @@ void OccObject::resetOCC()
     this->occActive(false);
     if (resetCallBack)
     {
-        this->resetCallBack(instance);
+        this->resetCallBack(chassis);
     }
 }
 
@@ -431,6 +436,18 @@ void OccObject::occReadStateNow()
 
         if (OccState(state) == OccState::ACTIVE)
         {
+            if (isMasterOcc() && !pcapBoundsUpdated)
+            {
+                // First successful poll for the master OCC: update PCAP bounds
+                // using the data already cached from pollReadStateStatus above.
+                uint32_t capSoftMin = 0, capHardMin = 0, capMax = 0;
+                bool parmsChanged = MyPollHandler->pollReadPcapBounds(
+                    capSoftMin, capHardMin, capMax);
+                manager.updatePcapBounds(parmsChanged, capSoftMin, capHardMin,
+                                         capMax);
+                pcapBoundsUpdated = true;
+            }
+
             if (pmode && isMasterOcc())
             {
                 // Set the master OCC on the PowerMode object

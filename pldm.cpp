@@ -284,12 +284,6 @@ void Interface::clearData()
     {
         lg2::info("clearData: Clearing sensorToOCCInstance ({NUM} entries)",
                   "NUM", sensorToOCCInstance.size());
-        for (auto entry : sensorToOCCInstance)
-        {
-            lg2::info("clearData: OCC{INST} / sensorID: {ID}", "INST",
-                      entry.second, "ID", lg2::hex, entry.first);
-            occActiveCallBack(entry.second, false);
-        }
         sensorToOCCInstance.clear();
     }
     if (!occInstanceToEffecter.empty())

@@ -49,7 +49,7 @@ function correctly. The kernel poll handler files
 
 The sole app-poll path construction in `occ_poll_app_handler.cpp:38-39` builds
 an `OccCommand` using the old `OCC_CONTROL_ROOT / occ<N>` path — this must be
-updated as part of Sub-Task 7.
+updated as part of Sub-Task 9.
 
 ### What Is Not Changing
 
@@ -110,7 +110,7 @@ BMC
                     devicePath /dev/occN   (kernel index)
 ```
 
-**D-Bus tree (after Sub-Task 8):**
+**D-Bus tree (after Sub-Task 9):**
 
 ```text
 /org/open_power/control                          ← SystemInfo root object
@@ -264,7 +264,7 @@ need to know which chassis it is associated with.
 
 ### Sub-Task 4 — Introduce `ChassisObject` class
 
-**Status:** `[ ] pending`
+**Status:** `[x] complete`
 
 **Intent:** Define the `ChassisObject` class that will own all per-chassis state
 and the collection of OCC objects for that chassis. This is a purely additive
@@ -279,9 +279,9 @@ yet changed. Sub-Task 5 then migrates `Manager` to use it.
   on this chassis
 - `chassisID chassis` — this chassis's identifier (1-based)
 - `bool active` — true when this chassis's OCCs are active
-- `bool safeMode` — true when this chassis is in safe mode; used by Sub-Task 6
+- `bool safeMode` — true when this chassis is in safe mode; used by Sub-Task 7
 - `bool resetRequired` / `bool resetInProgress` — per-chassis reset state; used
-  by Sub-Task 10
+  by Sub-Task 11
 - Reference to the master `OccObject` for this chassis (the first/only OCC
   today), exposed for `PowerMode` and `PowerCap` to use
 
@@ -315,7 +315,7 @@ yet changed. Sub-Task 5 then migrates `Manager` to use it.
 
 ### Sub-Task 5 — Update `Manager` to use `ChassisObject`
 
-**Status:** `[ ] pending`
+**Status:** `[x] complete`
 
 **Intent:** Migrate `Manager` from its current flat `statusObjects` /
 `passThroughObjects` vectors to a
@@ -406,7 +406,71 @@ it.
 
 ---
 
-### Sub-Task 6 — Per-chassis safe mode isolation
+### Sub-Task 6 — Consolidate PassThrough into OccObject and move SetMode to Manager
+
+**Status:** `[ ] pending`
+
+**Intent:** Historically, `PassThrough` was a separate D-Bus object/class
+because it needed direct character-device read/write access (`/dev/occX`) while
+regular status monitoring used kernel sysfs polling. With modern architecture,
+`OccObject` already encapsulates `OccCommand` targeting the exact same OCC
+device/chassis.
+
+Furthermore, `org.open_power.OCC.PassThrough` contains two methods with
+fundamentally different scopes in a multi-chassis architecture:
+
+1. `Send(bytes)` — **Per-OCC diagnostic pass-through**: sends raw command bytes
+   to a specific OCC instance. Belongs on the per-OCC D-Bus object.
+2. `SetMode(mode, data)` — **System-wide configuration**: sets and persists
+   system power mode and must be sent to the master OCC across **every
+   chassis**. Calling `SetMode` on a single OCC instance object is semantically
+   broken for multi-chassis systems.
+
+**Expected Outcomes:**
+
+- `OccObject` implements
+  `sdbusplus::server::object_t<Base::Status, Base::PassThrough>` directly on
+  `/org/open_power/control/chassis<N>/occ<M>`.
+- `OccObject::send(...)` forwards commands directly through its existing
+  `OccCommand occCmd` and checks its own `this->occActive()`.
+- Standalone `PassThrough` class and files (`occ_pass_through.hpp`,
+  `occ_pass_through.cpp`) and the `passThroughObjects` vector in `ChassisObject`
+  are removed.
+- `SetMode` is moved to `Manager` / `PowerMode` so mode changes broadcast to the
+  master OCC on all active chassis. `OccObject::setMode` (if retained on the
+  per-OCC interface for backward compatibility) delegates to
+  `manager.setMode(...)`.
+
+**Todo List:**
+
+1. In `occ_object.hpp`, inherit `Base::PassThrough` interface via
+   `sdbusplus::server::object_t<Base::Status, Base::PassThrough>`.
+2. Move `PassThrough::send()` implementation from `occ_pass_through.cpp` into
+   `OccObject` in `occ_object.cpp`, using `occCmd` and `this->occActive()`.
+3. In `PowerMode` / `Manager`, implement multi-chassis power mode broadcasting
+   to iterate over all `chassisObjects` and send `SET_MODE_AND_STATE` to each
+   chassis master OCC.
+4. Update `setMode()` to invoke the system-wide mode change across all chassis.
+5. In `occ_chassis.hpp`, remove `passThroughObjects` vector, `addPassThrough()`,
+   and `#include "occ_pass_through.hpp"`.
+6. In `occ_manager.cpp`, remove `chassisObj->addPassThrough(...)`.
+7. Remove `occ_pass_through.cpp` from `meson.build` and `test/meson.build` and
+   delete the standalone pass-through source/header files.
+
+**Relevant Context:**
+
+- [`occ_object.hpp:33-35`](occ_object.hpp:33) — `OccObject` interface
+  inheritance
+- [`occ_pass_through.hpp`](occ_pass_through.hpp) /
+  [`occ_pass_through.cpp`](occ_pass_through.cpp) — current `PassThrough`
+  implementation
+- [`occ_chassis.hpp:54-58`](occ_chassis.hpp:54) — `passThroughObjects`
+  management
+- [`powermode.cpp:433-510`](powermode.cpp:433) — `PowerMode::sendModeChange()`
+
+---
+
+### Sub-Task 7 — Per-chassis safe mode isolation
 
 **Status:** `[ ] pending`
 
@@ -468,7 +532,7 @@ operating normally.
 
 ---
 
-### Sub-Task 7 — Broadcast power mode, IPS, and power cap to all active chassis
+### Sub-Task 8 — Broadcast power mode, IPS, and power cap to all active chassis
 
 **Status:** `[ ] pending`
 
@@ -597,7 +661,7 @@ _occ_object.cpp:_
 
 ---
 
-### Sub-Task 8 — Update D-Bus object paths to chassis/occ subtree
+### Sub-Task 9 — Update D-Bus object paths to chassis/occ subtree
 
 **Status:** `[ ] pending`
 
@@ -664,7 +728,7 @@ and must handle multi-digit chassis numbers (e.g., `chassis10` for a future
 5. In `occ_manager.cpp:355-356`, pass the chassis number explicitly when
    constructing `PassThrough`
 6. In `powermode.cpp:157` (inside `setMasterOcc()` or its `addChassis()`
-   replacement from Sub-Task 7), replace `path.back() - '0'` with
+   replacement from Sub-Task 8), replace `path.back() - '0'` with
    `getChassisFromPath(path)`
 7. In `occ_manager.cpp:99`, change the string passed to `createObjects()` from
    `OCC_NAME + std::to_string(id)` to `"chassis" + std::to_string(id) + "/occ0"`
@@ -697,7 +761,7 @@ and must handle multi-digit chassis numbers (e.g., `chassis10` for a future
 
 ---
 
-### Sub-Task 9 — Add root system-info D-Bus object
+### Sub-Task 10 — Add root system-info D-Bus object
 
 **Status:** `[ ] pending`
 
@@ -772,7 +836,7 @@ mode changes.
 
 ---
 
-### Sub-Task 10 — Per-chassis reset isolation
+### Sub-Task 11 — Per-chassis reset isolation
 
 **Status:** `[ ] pending`
 

@@ -112,6 +112,7 @@ deps += [
 
 sources += [
     'app.cpp',
+    'occ_chassis.cpp',
     'occ_pass_through.cpp',
     'occ_manager.cpp',
     'occ_object.cpp',
@@ -142,16 +143,17 @@ if yamldir == ''
     yamldir = meson.project_source_root() / 'example'
 endif
 
-# Generate occ-sensor.hpp.
+# Generate occ_sensor.hpp.
 occ_sensor_hpp = custom_target(
-    'occ-sensor.hpp',
+    'occ_sensor.hpp',
     command: [
         python_prog,
         meson.project_source_root() + '/sensor_gen.py',
         '-i',
         yamldir,
     ],
-    output: 'occ-sensor.hpp',
+    output: 'occ_sensor.hpp',
+    depend_files: meson.project_source_root() / 'occ_sensor.hpp.mako',
 )
 sources += [occ_sensor_hpp]
 
@@ -180,3 +182,4 @@ executable(
 if get_option('tests').allowed()
     subdir('test')
 endif
+

@@ -12,6 +12,7 @@
 #include <phosphor-logging/lg2.hpp>
 #include <xyz/openbmc_project/Common/error.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -65,23 +66,25 @@ void Manager::findAndCreateObjects()
         if (!occObjCreated)
         {
             // Create the OCCs based on on the /dev/occX devices
-            auto occs = findOCCsInDev();
+            auto occDevices = findOCCsInDev();
 
-            if (occs.empty() || (prevOCCSearch.size() != occs.size()))
+            if (occDevices.empty() ||
+                (prevOCCSearch.size() != occDevices.size()))
             {
                 // Something changed or no OCCs yet, try again in 10s.
                 // Note on the first pass prevOCCSearch will be empty,
                 // so there will be at least one delay to give things
                 // a chance to settle.
                 static bool tracedOCCWait = false;
-                if (!tracedOCCWait || (prevOCCSearch.size() != occs.size()))
+                if (!tracedOCCWait ||
+                    (prevOCCSearch.size() != occDevices.size()))
                 {
                     lg2::info(
                         "Manager::findAndCreateObjects(): Waiting for OCC devices in /dev (currently {QTY})",
-                        "QTY", occs.size());
+                        "QTY", occDevices.size());
                     tracedOCCWait = true;
                 }
-                prevOCCSearch = occs;
+                prevOCCSearch = occDevices;
 
                 discoverTimer->restartOnce(10s);
             }
@@ -90,22 +93,22 @@ void Manager::findAndCreateObjects()
                 // All OCCs appear to be available, create OCC objects
 
                 // createObjects requires OCC0 first.
-                std::sort(occs.begin(), occs.end());
+                std::sort(occDevices.begin(), occDevices.end());
 
                 lg2::info(
                     "Manager::findAndCreateObjects(): Creating {QTY} occObjects",
-                    "QTY", occs.size());
-                for (auto id : occs)
+                    "QTY", occDevices.size());
+                for (auto id : occDevices)
                 {
-                    createObjects(getOccPath(id));
+                    createObjects(id);
                 }
                 occObjCreated = true;
                 waitingForAllOccActiveSensors = true;
 
                 // Find/update the processor path associated with each OCC
-                for (auto& obj : occObjects)
+                for (auto& [cid, chassisObj] : chassisObjects)
                 {
-                    obj->updateProcAssociation();
+                    chassisObj->updateProcAssociations();
                 }
             }
         }
@@ -168,46 +171,34 @@ void Manager::checkAllActiveSensors()
             lg2::info("checkAllActiveSensors(): Host is now running");
         }
 
-        // Start with the assumption that all are available
+        // Start with the assumption that all sensors are available
         allActiveSensorAvailable = true;
-        for (auto& obj : occObjects)
+        for (auto& [cid, chassisObj] : chassisObjects)
         {
-            if ((!obj->occActive()) && (!obj->getPldmSensorReceived()))
-            {
-                auto instance = obj->getOccInstanceID();
-                // Check if sensor was queued while waiting for discovery
-                auto match = queuedActiveState.find(instance);
-                if (match != queuedActiveState.end())
-                {
-                    queuedActiveState.erase(match);
-                    lg2::info(
-                        "checkAllActiveSensors(): OCC{INST} is ACTIVE (queued)",
-                        "INST", instance);
-                    obj->occActive(true);
-                }
-                else
-                {
-                    allActiveSensorAvailable = false;
-                    if (!tracedSensorWait)
-                    {
-                        lg2::info(
-                            "checkAllActiveSensors(): Waiting on OCC{INST} Active sensor",
-                            "INST", instance);
-                        tracedSensorWait = true;
-                        // Make sure PLDM traces are not throttled
-                        pldmHandle->setTraceThrottle(false);
-                        // Start timer to throttle PLDM traces when timer
-                        // expires
-                        onPldmTimeoutCreatePel = false;
-                        throttlePldmTraceTimer->restartOnce(5min);
-                    }
+            bool resolved = chassisObj->isSensorResolved(
+                queuedActiveState, [this](instanceID inst) {
+                    // Make sure PLDM traces are not throttled
                     // Ignore active sensor check if the OCCs are being reset
                     if (!resetInProgress)
-                    {
-                        pldmHandle->checkActiveSensor(obj->getOccInstanceID());
-                    }
-                    break;
+                        pldmHandle->checkActiveSensor(inst);
+                });
+
+            if (!resolved)
+            {
+                allActiveSensorAvailable = false;
+                if (!tracedSensorWait)
+                {
+                    lg2::info(
+                        "checkAllActiveSensors(): Waiting on chassis{CID} OCC Active sensor",
+                        "CID", cid);
+                    tracedSensorWait = true;
+                    // Make sure PLDM traces are not throttled
+                    pldmHandle->setTraceThrottle(false);
+                    // Start timer to throttle PLDM traces when timer expires
+                    onPldmTimeoutCreatePel = false;
+                    throttlePldmTraceTimer->restartOnce(5min);
                 }
+                break;
             }
         }
     }
@@ -250,17 +241,14 @@ void Manager::checkAllActiveSensors()
             // Retry processor association for any OCC that failed at
             // object-creation time (host D-Bus objects may not have existed
             // yet).
-            for (auto& obj : occObjects)
+            for (auto& [cid, chassisObj] : chassisObjects)
             {
-                if (obj->getProcPath().empty())
-                {
-                    obj->updateProcAssociation();
-                }
+                chassisObj->updateProcAssociations();
             }
 
             if (resetRequired)
             {
-                initiateOccRequest(resetInstance);
+                triggerOccReset();
 
                 if (!waitForAllOccsTimer->isEnabled())
                 {
@@ -290,7 +278,7 @@ void Manager::checkAllActiveSensors()
 
 std::vector<int> Manager::findOCCsInDev()
 {
-    std::vector<int> occs;
+    std::vector<int> occDevices;
     std::regex expr{R"(occ(\d+)$)"};
 
     for (auto& file : fs::directory_iterator("/dev"))
@@ -299,35 +287,44 @@ std::vector<int> Manager::findOCCsInDev()
         std::string path{file.path().string()};
         if (std::regex_search(path, match, expr))
         {
-            auto num = std::stoi(match[1].str());
-            occs.push_back(num);
+            auto deviceNum = std::stoi(match[1].str());
+            occDevices.push_back(deviceNum);
         }
     }
 
-    return occs;
+    return occDevices;
 }
 
-// Convert a kernel OCC device number to the D-Bus path segment used under
-// OCC_CONTROL_ROOT, e.g. device 0 -> "chassis1/occ0".
-std::string Manager::getOccPath(int deviceNum)
+void Manager::createObjects(int deviceNum)
 {
-    auto chassisNum = deviceNum + 1;
-    return std::string(CHASSIS_NAME) + std::to_string(chassisNum) + "/" +
-           OCC_NAME + "0";
-}
+    // Build the D-Bus path for this /dev/occ# device:
+    // e.g. device 0 -> OCC_CONTROL_ROOT/chassis1/occ0
+    // Currently one OCC per chassis
+    chassisID cid = static_cast<chassisID>(deviceNum + 1);
+    auto path = fs::path(OCC_CONTROL_ROOT) /
+                (std::string(CHASSIS_NAME) + std::to_string(cid)) /
+                (std::string(OCC_NAME) + "0");
 
-void Manager::createObjects(const std::string& occPath)
-{
-    auto path = fs::path(OCC_CONTROL_ROOT) / occPath;
+    // Create the ChassisObject for this chassis if it doesn't exist yet,
+    // wiring its manager callback at construction time.
+    if (chassisObjects.find(cid) == chassisObjects.end())
+    {
+        chassisObjects[cid] = std::make_unique<ChassisObject>(
+            cid, std::bind(std::mem_fn(&Manager::chassisStatusCallback), this,
+                           std::placeholders::_1, std::placeholders::_2));
+        ++numChassis;
+    }
+    auto& chassisObj = chassisObjects[cid];
 
-    occObjects.emplace_back(std::make_unique<OccObject>(
-        event, path.c_str(), *this, pmode,
-        std::bind(std::mem_fn(&Manager::occStatusCallback), this,
-                  std::placeholders::_1, std::placeholders::_2),
+    // Build the OccObject that will be transferred to the ChassisObject
+    auto occ = std::make_unique<OccObject>(
+        event, path.c_str(), *this, pmode, cid,
+        std::bind(std::mem_fn(&ChassisObject::onOccActiveChanged),
+                  chassisObj.get(), std::placeholders::_2),
         // Callback will set flag indicating reset needs to be done
         // instead of immediately issuing a reset via PLDM.
         std::bind(std::mem_fn(&Manager::resetOccRequest), this,
-                  std::placeholders::_1)));
+                  std::placeholders::_1));
 
     // Create the power cap monitor object
     if (!pcap)
@@ -335,102 +332,112 @@ void Manager::createObjects(const std::string& occPath)
         pcap = std::make_unique<open_power::occ::powercap::PowerCap>();
     }
 
-    if (occObjects.back()->isMasterOcc())
-    {
-        lg2::info("Manager::createObjects(): OCC{INST} is the master", "INST",
-                  occObjects.back()->getOccInstanceID());
-        _pollTimer->setEnabled(false);
-
-        // Set the master OCC on the PowerMode object
-        pmode->setMasterOcc(path);
-    }
-
-    passThroughObjects.emplace_back(
+    // Transfer ownership of the OccObject to the ChassisObject
+    chassisObj->addOcc(std::move(occ));
+    chassisObj->addPassThrough(
         std::make_unique<PassThrough>(path.c_str(), pmode));
 }
 
 // If a reset is not already outstanding, set a flag to indicate that a reset is
 // needed.
-void Manager::resetOccRequest(instanceID instance)
+void Manager::resetOccRequest(chassisID cid)
 {
     if (!resetRequired)
     {
         resetRequired = true;
-        resetInstance = instance;
+        chassisRequestingReset = cid;
+        // TODO: pass the per-chassis PLDM instance once chassis-specific
+        // reset support is added; use 0 for now.
+        instanceRequestingReset = 0;
         lg2::error(
-            "resetOccRequest: PM Complex reset was requested due to OCC{INST}",
-            "INST", instance);
+            "resetOccRequest: PM Complex reset was requested by chassis{CH}",
+            "CH", cid);
 
-        if (activeCount == 0)
+        if (!std::any_of(chassisObjects.begin(), chassisObjects.end(),
+                         [](const auto& kv) { return kv.second->active; }))
         {
-            initiateOccRequest(instance);
+            // The OCCs are all no longer active
+            triggerOccReset();
         }
     }
-    else if (instance != resetInstance)
+    else if (cid != chassisRequestingReset)
     {
         lg2::warning(
-            "resetOccRequest: Ignoring PM Complex reset request for OCC{INST}, because reset already outstanding for OCC{RINST}",
-            "INST", instance, "RINST", resetInstance);
+            "resetOccRequest: Ignoring PM Complex reset request for chassis{CH}, "
+            "because reset already outstanding for chassis{RCH}",
+            "CH", cid, "RCH", chassisRequestingReset);
     }
 }
 
-// If a reset has not been started, initiate an OCC reset via PLDM
-void Manager::initiateOccRequest(instanceID instance)
+// If a reset is not already in progress, trigger a PM Complex reset via PLDM
+void Manager::triggerOccReset()
 {
     if (!resetInProgress)
     {
         resetInProgress = true;
-        resetInstance = instance;
         lg2::error(
-            "initiateOccRequest: Initiating PM Complex reset due to OCC{INST}",
-            "INST", instance);
+            "triggerOccReset: Initiating PM Complex reset for chassis{CH} (OCC{INST})",
+            "CH", chassisRequestingReset, "INST", instanceRequestingReset);
 
         // Make sure ALL OCC comm stops to all OCCs before the reset
-        for (auto& obj : occObjects)
+        for (auto& [chassis, chassisObj] : chassisObjects)
         {
-            if (obj->occActive())
-            {
-                obj->occActive(false);
-            }
+            chassisObj->deactivateAll();
         }
 
-        pldmHandle->resetOCC(instance);
+        // TODO: pass the chassis-specific PLDM instance once per-chassis
+        // reset support is added; instance is 0 until then.
+        pldmHandle->resetOCC(instanceRequestingReset);
         resetRequired = false;
     }
     else
     {
         lg2::warning(
-            "initiateOccRequest: Ignoring PM Complex reset request for OCC{INST}, "
-            "because reset already in process for OCC{RINST}",
-            "INST", instance, "RINST", resetInstance);
+            "triggerOccReset: Ignoring PM Complex reset request for chassis{CH} "
+            "(OCC{INST}), because reset already in process",
+            "CH", chassisRequestingReset, "INST", instanceRequestingReset);
     }
 }
 
-void Manager::occStatusCallback(instanceID instance, bool status)
+void Manager::chassisStatusCallback(chassisID cid, bool status)
 {
     if (status == true)
     {
         if (resetInProgress)
         {
             lg2::info(
-                "occStatusCallback: Ignoring OCC{INST} activate because a reset has "
-                "been initiated due to OCC{RINST}",
-                "INST", instance, "RINST", resetInstance);
+                "chassisStatusCallback: Ignoring chassis{CH} activate because a reset has "
+                "been initiated for chassis{RCH}",
+                "CH", cid, "RCH", chassisRequestingReset);
             return;
         }
 
-        // OCC went active
-        ++activeCount;
-
-        if (activeCount == 1)
+        // First chassis went active — allow time for all to come up
+        if (std::count_if(chassisObjects.begin(), chassisObjects.end(),
+                          [](const auto& kv) { return kv.second->active; }) ==
+            1)
         {
-            // First OCC went active (allow some time for all OCCs to go active)
+            // Set the master OCC on the PowerMode object using the first
+            // chassis to go active
+            auto it = chassisObjects.find(cid);
+            if (pmode && (it != chassisObjects.end()))
+            {
+                pmode->setMasterOcc(it->second->getMasterOcc().getPath());
+            }
+
             waitForAllOccsTimer->restartOnce(60s);
         }
 
-        if (activeCount == occObjects.size())
+        auto allActive = [this]() {
+            return !chassisObjects.empty() &&
+                   std::all_of(chassisObjects.begin(), chassisObjects.end(),
+                               [](const auto& kv) {
+                                   return kv.second->active;
+                               });
+        };
+        if (allActive())
         {
-            // All OCCs are now running
+            // All chassis are now running
             if (waitForAllOccsTimer->isEnabled())
             {
                 // stop occ wait timer
@@ -440,7 +447,7 @@ void Manager::occStatusCallback(instanceID instance, bool status)
             // All OCCs have been found, check if we need a reset
             if (resetRequired)
             {
-                initiateOccRequest(resetInstance);
+                triggerOccReset();
 
                 if (!waitForAllOccsTimer->isEnabled())
                 {
@@ -457,19 +464,19 @@ void Manager::occStatusCallback(instanceID instance, bool status)
             }
         }
 
-        // Start poll timer if not already started (since at least one OCC is
-        // running)
+        // Start poll timer if not already started (since at least one chassis
+        // is active)
         if (!_pollTimer->isEnabled())
         {
-            // An OCC just went active, PM Complex is just coming online so
+            // A chassis just went active, PM Complex is just coming online so
             // clear any outstanding reset requests
             if (resetRequired)
             {
                 resetRequired = false;
                 lg2::error(
-                    "occStatusCallback: clearing resetRequired (since OCC{INST} "
+                    "chassisStatusCallback: clearing resetRequired (since chassis{CH} "
                     "went active, resetInProgress={RIP})",
-                    "INST", instance, "RIP", resetInProgress);
+                    "CH", cid, "RIP", resetInProgress);
             }
 
             lg2::info("Manager: OCCs will be polled every {TIME} seconds",
@@ -481,38 +488,32 @@ void Manager::occStatusCallback(instanceID instance, bool status)
     }
     else
     {
-        // OCC went away
-        if (activeCount > 0)
-        {
-            --activeCount;
-        }
-        else
-        {
-            lg2::info("OCC{INST} disabled, and no other OCCs are active",
-                      "INST", instance);
-        }
+        auto anyActive = [this]() {
+            return std::any_of(
+                chassisObjects.begin(), chassisObjects.end(),
+                [](const auto& kv) { return kv.second->active; });
+        };
 
-        if (activeCount == 0)
+        if (!anyActive())
         {
-            // No OCCs are running
-
+            // No chassis are running
             if (resetInProgress)
             {
                 // All OCC active sensors are clear (reset should be in
                 // progress)
-                lg2::info(
-                    "occStatusCallback: Clearing resetInProgress (activeCount={COUNT}, "
-                    "OCC{INST}, status={STATUS})",
-                    "COUNT", activeCount, "INST", instance, "STATUS", status);
+                lg2::info("chassisStatusCallback: Clearing resetInProgress "
+                          "(chassis{CH}, status={STATUS})",
+                          "CH", cid, "STATUS", status);
                 resetInProgress = false;
-                resetInstance = 255;
+                chassisRequestingReset = 0;
+                instanceRequestingReset = 0xFF;
             }
 
             // Stop OCC poll timer
             if (_pollTimer->isEnabled())
             {
                 lg2::info(
-                    "Manager::occStatusCallback(): OCCs are not running, stopping poll timer");
+                    "Manager::chassisStatusCallback(): OCCs are not running, stopping poll timer");
                 _pollTimer->setEnabled(false);
             }
 
@@ -525,18 +526,9 @@ void Manager::occStatusCallback(instanceID instance, bool status)
         else if (resetInProgress)
         {
             lg2::info(
-                "occStatusCallback: Skipping clear of resetInProgress (activeCount={COUNT}, "
-                "OCC{INST}, status={STATUS})",
-                "COUNT", activeCount, "INST", instance, "STATUS", status);
-        }
-        // Clear OCC sensors
-        for (auto& obj : occObjects)
-        {
-            if (instance == obj->getOccInstanceID())
-            {
-                obj->setSensorValueToNaN();
-                break;
-            }
+                "chassisStatusCallback: Skipping clear of resetInProgress "
+                "(chassis{CH}, status={STATUS})",
+                "CH", cid, "STATUS", status);
         }
     }
 
@@ -549,46 +541,39 @@ void Manager::occStatusCallback(instanceID instance, bool status)
     }
 }
 
-void Manager::sbeTimeout(unsigned int instance)
+void Manager::sbeTimeout(unsigned int deviceInstance)
 {
-    auto obj = std::find_if(occObjects.begin(), occObjects.end(),
-                            [instance](const auto& obj) {
-                                return instance == obj->getOccInstanceID();
-                            });
-
-    if (obj != occObjects.end() && (*obj)->occActive())
+    chassisID cid = static_cast<chassisID>(deviceInstance + 1);
+    auto it = chassisObjects.find(cid);
+    if (it != chassisObjects.end())
     {
         lg2::info("SBE timeout, requesting HRESET (OCC{INST})", "INST",
-                  instance);
+                  deviceInstance);
 
 #ifdef PHAL_SUPPORT
-        setSBEState(instance, SBE_STATE_NOT_USABLE);
+        setSBEState(deviceInstance, SBE_STATE_NOT_USABLE);
 #endif
 
-        // Stop communication with this OCC
-        (*obj)->occActive(false);
-
-        pldmHandle->sendHRESET(instance);
+        it->second->setOccActive(deviceInstance, false);
+        pldmHandle->sendHRESET(deviceInstance);
     }
 }
 
 bool Manager::updateOCCActive(instanceID instance, bool status)
 {
-    auto obj = std::find_if(occObjects.begin(), occObjects.end(),
-                            [instance](const auto& obj) {
-                                return instance == obj->getOccInstanceID();
-                            });
+    chassisID cid = static_cast<chassisID>(instance + 1);
+    auto it = chassisObjects.find(cid);
 
-    const bool hostRunning = open_power::occ::utils::isHostRunning();
-    if (obj != occObjects.end())
+    bool hostRunning = open_power::occ::utils::isHostRunning();
+    if (it != chassisObjects.end())
     {
         if (!hostRunning && (status == true))
         {
             lg2::warning(
-                "updateOCCActive: Host is not running yet (OCC{INST} active={STAT}), "
+                "updateOCCActive: Host is not running yet (OCC{INST} active=true), "
                 "clearing sensor received",
-                "INST", instance, "STAT", status);
-            (*obj)->setPldmSensorReceived(false);
+                "INST", instance);
+            it->second->setPldmSensorReceived(instance, false);
             if (!waitingForAllOccActiveSensors)
             {
                 lg2::info(
@@ -600,8 +585,9 @@ bool Manager::updateOCCActive(instanceID instance, bool status)
         }
         else
         {
-            (*obj)->setPldmSensorReceived(true);
-            return (*obj)->occActive(status);
+            it->second->setPldmSensorReceived(instance, true);
+            it->second->setOccActive(instance, status);
+            return status;
         }
     }
     else
@@ -644,10 +630,10 @@ bool Manager::updateOCCActive(instanceID instance, bool status)
 void Manager::updateOccSafeMode(bool safeMode)
 {
     pmode->updateDbusSafeMode(safeMode);
-    // Update the processor throttle status on dbus
-    for (auto& obj : occObjects)
+    // Update the processor throttle status on dbus for all chassis
+    for (auto& [cid, chassisObj] : chassisObjects)
     {
-        obj->updateThrottle(safeMode, THROTTLED_SAFE);
+        chassisObj->updateThrottle(safeMode, THROTTLED_SAFE);
     }
 }
 
@@ -662,13 +648,11 @@ void Manager::sbeHRESETResult(instanceID instance, bool success)
 #endif
 
         // Re-enable communication with this OCC
-        auto obj = std::find_if(occObjects.begin(), occObjects.end(),
-                                [instance](const auto& obj) {
-                                    return instance == obj->getOccInstanceID();
-                                });
-        if (obj != occObjects.end() && (!(*obj)->occActive()))
+        chassisID cid = static_cast<chassisID>(instance + 1);
+        auto it = chassisObjects.find(cid);
+        if (it != chassisObjects.end())
         {
-            (*obj)->occActive(true);
+            it->second->setOccActive(instance, true);
         }
 
         return;
@@ -825,7 +809,7 @@ void Manager::pollerTimerExpired()
     if (resetRequired)
     {
         lg2::error("pollerTimerExpired() - Initiating PM Complex reset");
-        initiateOccRequest(resetInstance);
+        triggerOccReset();
 
         if (!waitForAllOccsTimer->isEnabled())
         {
@@ -835,20 +819,13 @@ void Manager::pollerTimerExpired()
         }
         return;
     }
-    for (auto& obj : occObjects)
+    for (auto& [cid, chassisObj] : chassisObjects)
     {
-        if (!obj->occActive())
-        {
-            // OCC is not running yet
-            obj->setSensorValueToNaN();
-            continue;
-        }
-
-        // get OCC Poll Response and handle actions needed.
-        obj->PollHandler();
+        chassisObj->poll();
     }
 
-    if (activeCount > 0)
+    if (std::any_of(chassisObjects.begin(), chassisObjects.end(),
+                    [](const auto& kv) { return kv.second->active; }))
     {
         // Restart OCC poll timer
         _pollTimer->restartOnce(std::chrono::seconds(pollInterval));
@@ -957,12 +934,9 @@ void Manager::ambientCallback(sdbusplus::message_t& msg)
                    "TEMP", ambient, "ALT", altitude);
 
         // Send ambient and altitude to all OCCs
-        for (auto& obj : occObjects)
+        for (auto& [cid, chassisObj] : chassisObjects)
         {
-            if (obj->occActive())
-            {
-                obj->sendAmbient(ambient, altitude);
-            }
+            chassisObj->sendAmbient(ambient, altitude);
         }
     }
 }
@@ -991,18 +965,21 @@ void Manager::occsNotAllRunning()
             "occsNotAllRunning: Ignoring waitForAllOccsTimer because reset is in progress");
         return;
     }
-    if (activeCount != occObjects.size())
+    auto activeCnt =
+        std::count_if(chassisObjects.begin(), chassisObjects.end(),
+                      [](const auto& kv) { return kv.second->active; });
+    if (static_cast<size_t>(activeCnt) != chassisObjects.size())
     {
         // Not all OCCs went active
         lg2::warning(
             "occsNotAllRunning: Active OCC count ({COUNT}) does not match expected count ({EXP})",
-            "COUNT", activeCount, "EXP", occObjects.size());
+            "COUNT", activeCnt, "EXP", chassisObjects.size());
         // Procs may be garded, so may be expected
     }
 
     if (resetRequired)
     {
-        initiateOccRequest(resetInstance);
+        triggerOccReset();
 
         if (!waitForAllOccsTimer->isEnabled())
         {
@@ -1094,82 +1071,26 @@ void Manager::createPldmSensorPEL()
     }
 }
 
-// Verify single master OCC and start presence monitor
+// Verify master OCC per chassis and start presence monitor
 void Manager::validateOccMaster()
 {
-    int masterInstance = -1;
-    for (auto& obj : occObjects)
+    for (auto& [cid, chassisObj] : chassisObjects)
     {
-        auto instance = obj->getOccInstanceID();
-
-        if (!obj->occActive())
-        {
+        chassisObj->isSensorResolved(queuedActiveState, [this, &chassisObj](
+                                                            instanceID inst) {
             if (utils::isHostRunning())
             {
-                // Check if sensor was queued while waiting for discovery
-                auto match = queuedActiveState.find(instance);
-                if (match != queuedActiveState.end())
+                pldmHandle->checkActiveSensor(inst);
+                if (chassisObj->getPldmSensorReceived(inst))
                 {
-                    queuedActiveState.erase(match);
-                    lg2::info("validateOccMaster: OCC{INST} is ACTIVE (queued)",
-                              "INST", instance);
-                    obj->occActive(true);
-                }
-                else
-                {
-                    // OCC does not appear to be active yet, check active sensor
-                    pldmHandle->checkActiveSensor(instance);
-                    if (obj->occActive())
-                    {
-                        lg2::info(
-                            "validateOccMaster: OCC{INST} is ACTIVE after reading sensor",
-                            "INST", instance);
-                    }
+                    lg2::info(
+                        "validateOccMaster: OCC{INST} is ACTIVE after reading sensor",
+                        "INST", inst);
                 }
             }
-            else
-            {
-                lg2::warning(
-                    "validateOccMaster: HOST is not running (OCC{INST})",
-                    "INST", instance);
-                return;
-            }
-        }
+        });
 
-        if (obj->isMasterOcc())
-        {
-#ifndef ENABLE_APP_POLL_SUPPORT
-            obj->addPresenceWatchMaster();
-#endif
-
-            if (masterInstance == -1)
-            {
-                masterInstance = instance;
-            }
-            else
-            {
-                lg2::error(
-                    "validateOccMaster: Multiple OCC masters! ({MAST1} and {MAST2})",
-                    "MAST1", masterInstance, "MAST2", instance);
-                // request reset
-                obj->deviceError(Error::Descriptor(PRESENCE_ERROR_PATH));
-            }
-        }
-    }
-
-    if (masterInstance < 0)
-    {
-        lg2::error("validateOccMaster: Master OCC not found! (of {NUM} OCCs)",
-                   "NUM", occObjects.size());
-        // request reset
-        occObjects.front()->deviceError(Error::Descriptor(PRESENCE_ERROR_PATH));
-    }
-    else
-    {
-        lg2::info("validateOccMaster: OCC{INST} is master of {COUNT} OCCs",
-                  "INST", masterInstance, "COUNT", activeCount);
-
-        pmode->updateDbusSafeMode(false);
+        chassisObj->validateOccMaster(pmode);
     }
 }
 
@@ -1178,15 +1099,14 @@ void Manager::updatePcapBounds(bool& parmsChanged, uint32_t& capSoftMin,
 {
     if (pcap)
     {
-        for (auto& obj : occObjects)
+        // Use the master OCC from the first (lowest-numbered) chassis
+        auto it = chassisObjects.begin();
+        if (it != chassisObjects.end())
         {
-            if (obj->isMasterOcc())
-            {
-                lg2::info("updatePcapBounds: setting OCC{INST} as pcap master",
-                          "INST", obj->getOccInstanceID());
-                pcap->setMasterOccObj(*obj);
-                break;
-            }
+            OccObject& master = it->second->getMasterOcc();
+            lg2::info("updatePcapBounds: setting OCC{INST} as pcap master",
+                      "INST", master.getOccInstanceID());
+            pcap->setMasterOccObj(master);
         }
         pcap->updatePcapBounds(parmsChanged, capSoftMin, capHardMin, capMax);
     }
@@ -1198,17 +1118,25 @@ void Manager::hostPoweredOff()
 {
     if (resetRequired)
     {
-        lg2::info("hostPoweredOff: Clearing resetRequired for OCC{INST}",
-                  "INST", resetInstance);
+        lg2::info("hostPoweredOff: Clearing resetRequired for chassis{CH}",
+                  "CH", chassisRequestingReset);
         resetRequired = false;
     }
     if (resetInProgress)
     {
-        lg2::info("hostPoweredOff: Clearing resetInProgress for OCC{INST}",
-                  "INST", resetInstance);
+        lg2::info("hostPoweredOff: Clearing resetInProgress for chassis{CH}",
+                  "CH", chassisRequestingReset);
         resetInProgress = false;
     }
-    resetInstance = 255;
+    chassisRequestingReset = 0;
+    instanceRequestingReset = 0xFF;
+
+    // Deactivate all OCCs — clears sensors, stops device, fires callbacks
+    // that stop the poll timer and clear resetInProgress.
+    for (auto& [cid, chassisObj] : chassisObjects)
+    {
+        chassisObj->deactivateAll();
+    }
 }
 
 void Manager::collectDumpData(sdeventplus::source::Signal&,
@@ -1216,67 +1144,14 @@ void Manager::collectDumpData(sdeventplus::source::Signal&,
 {
     json data;
     lg2::info("collectDumpData()");
-    data["objectCount"] = std::to_string(occObjects.size()) + " OCC objects";
-    if (occObjects.size() > 0)
+    data["objectCount"] = std::to_string(numChassis) + " chassis";
+    if (numChassis > 0)
     {
         try
         {
-            for (auto& occ : occObjects)
+            for (auto& [cid, chassisObj] : chassisObjects)
             {
-                json occData;
-                auto instance = occ->getOccInstanceID();
-                std::string occName = "occ" + std::to_string(instance);
-
-                if (occ->occActive())
-                {
-                    // OCC General Info
-                    occData["occState"] = "ACTIVE";
-                    occData["occRole"] =
-                        occ->isMasterOcc() ? "MASTER" : "SECONDARY";
-                    occData["occHwmonPath"] =
-                        occ->getHwmonPath().generic_string();
-
-                    // OCC Poll Response
-                    std::vector<std::uint8_t> cmd = {0x00, 0x00, 0x01, 0x20};
-                    std::vector<std::uint8_t> rsp;
-                    std::vector<std::string> rspHex;
-                    rsp = passThroughObjects[instance]->send(cmd);
-                    if (rsp.size() > 5)
-                    {
-                        rsp.erase(rsp.begin(),
-                                  rsp.begin() + 5); // Strip rsp header
-                        rspHex = utils::hex_dump(rsp);
-                        occData["pollResponse"] = rspHex;
-                    }
-
-                    // Debug Data: WOF Dynamic Data
-                    cmd = {0x40, 0x00, 0x01, 0x01};
-                    rsp = passThroughObjects[instance]->send(cmd);
-                    if (rsp.size() > 5)
-                    {
-                        rsp.erase(rsp.begin(),
-                                  rsp.begin() + 5); // Strip rsp header
-                        rspHex = utils::hex_dump(rsp);
-                        occData["wofDataDynamic"] = rspHex;
-                    }
-
-                    // Debug Data: WOF Dynamic Data
-                    cmd = {0x40, 0x00, 0x01, 0x0A};
-                    rsp = passThroughObjects[instance]->send(cmd);
-                    if (rsp.size() > 5)
-                    {
-                        rsp.erase(rsp.begin(),
-                                  rsp.begin() + 5); // Strip rsp header
-                        rspHex = utils::hex_dump(rsp);
-                        occData["wofDataStatic"] = rspHex;
-                    }
-                }
-                else
-                {
-                    occData["occState"] = "NOT ACTIVE";
-                }
-
-                data[occName] = occData;
+                chassisObj->collectDumpData(data);
             }
         }
         catch (const std::exception& e)

@@ -36,11 +36,11 @@ CmdStatus OccPollAppHandler::sendOccPollCmd()
         PollRspData.clear();
     }
 
-    OccCommand occCmd(occInstanceID,
-                      (fs::path(OCC_CONTROL_ROOT) /
-                       (std::string(CHASSIS_NAME) + std::to_string(1)) /
-                       (std::string(OCC_NAME) + std::to_string(occInstanceID)))
-                          .c_str());
+    OccCommand occCmd(
+        (fs::path(OCC_CONTROL_ROOT) /
+         (std::string(CHASSIS_NAME) + std::to_string(DEFAULT_CHASSIS)) /
+         (std::string(OCC_NAME) + std::to_string(occInstanceID)))
+            .c_str());
 
     std::vector<std::uint8_t> cmd = {0x00, 0x00, 0x01, 0x20};
 
