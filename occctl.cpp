@@ -2571,6 +2571,8 @@ int occTrace(int chassis, int occ)
     static const char* script = R"PY(
 import sys
 import os
+import io
+import contextlib
 from udparsers.b2a00.b2a00 import *
 import udparsers.helpers.hostfw_trace as hostfw_trace
 import udparsers.helpers.miscUtils as miscUtils
@@ -2578,6 +2580,16 @@ import udparsers.helpers.miscUtils as miscUtils
 # Search the current directory first for the OCC string file
 # (either "occStringFile" or "81e00687.lid"), before the system paths.
 miscUtils.LID_SEARCH_DIRS.insert(0, os.getcwd())
+
+# Version 2 string files ("#FSP_TRACE_v2") are parsed by a hostfw_trace
+# function that references an undefined "hbotTable" (NameError). Point it at
+# the real hash table so the string file can be loaded.
+_orig_parse_sf_entry_v2 = hostfw_trace.parse_sf_entry_v2
+def _safe_parse_sf_entry_v2(line):
+    if not hasattr(hostfw_trace, "hbotTable"):
+        hostfw_trace.hbotTable = hostfw_trace.hTable
+    return _orig_parse_sf_entry_v2(line)
+hostfw_trace.parse_sf_entry_v2 = _safe_parse_sf_entry_v2
 
 # Older hostfw_trace versions crash (len(None)) when a trace hash is not in
 # the string file. Return None for unknown hashes so the trace is reported
@@ -2608,7 +2620,9 @@ for file, skipCount in zip(input_file, input_skip):
     memory_view = memoryview(input_bytearray)
     memory_view = memory_view[5:]
 
-    traceresults, to = errludP_occ.parseTrace(memory_view, 0)
+    # hostfw_trace prints a debug line on every call; discard it.
+    with contextlib.redirect_stdout(io.StringIO()):
+        traceresults, to = errludP_occ.parseTrace(memory_view, 0)
     for skip, x in enumerate(traceresults):
         if skip > skipCount:
             final_trace.append(x)
@@ -2635,6 +2649,8 @@ for x in final_trace:
     {
         cmd << " " << t->file << " " << t->skipLines;
     }
+    std::cout << "\n";
+
     auto rc = runSystemCmd(cmd.str());
     cleanup();
     if (rc != 0)
